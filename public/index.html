@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Community Link</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">Community Link</div>
+      <div id="whoami" class="whoami hidden">
+        <span id="whoami-text"></span>
+        <button id="logout" class="link">Log out</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="login-view" class="card login hidden">
+        <h1>Join your zone</h1>
+        <p class="muted">Posts clear themselves once they are resolved or their timeline ends.</p>
+        <form id="login-form">
+          <label>Your name
+            <input name="name" required maxlength="60" autocomplete="nickname" />
+          </label>
+          <fieldset>
+            <legend>I am a</legend>
+            <label class="inline"><input type="radio" name="role" value="participant" checked /> Participant</label>
+            <label class="inline"><input type="radio" name="role" value="organiser" /> Organiser</label>
+          </fieldset>
+          <label id="organiser-code-row" class="hidden">Organiser code
+            <input name="organiserCode" type="password" autocomplete="off" />
+          </label>
+          <button type="submit">Enter</button>
+          <p id="login-error" class="error" role="alert"></p>
+        </form>
+      </section>
+
+      <div id="app-view" class="hidden">
+        <section class="card compose">
+          <h2>New post</h2>
+          <form id="post-form">
+            <label>Template
+              <select name="template" id="template-select"></select>
+            </label>
+            <p id="template-description" class="muted small"></p>
+
+            <label id="channel-row">Send to
+              <select name="channel" id="channel-select"></select>
+            </label>
+            <p id="channel-hint" class="muted small"></p>
+
+            <label>Title
+              <input name="title" required maxlength="120" />
+            </label>
+            <label>Message
+              <textarea name="body" required maxlength="2000" rows="3"></textarea>
+            </label>
+            <label id="location-row">Location (optional)
+              <input name="location" maxlength="120" placeholder="e.g. Hall B, near the registration desk" />
+            </label>
+            <label>Timeline (minutes until it clears)
+              <input name="ttlMinutes" id="ttl-input" type="number" min="5" step="5" />
+            </label>
+            <button type="submit">Post</button>
+            <p id="post-error" class="error" role="alert"></p>
+          </form>
+        </section>
+
+        <section class="feed">
+          <div class="feed-head">
+            <h2>Live posts</h2>
+            <label class="inline">Show
+              <select id="filter-select"></select>
+            </label>
+          </div>
+          <div id="feed"></div>
+          <p id="feed-empty" class="muted hidden">Nothing live right now.</p>
+        </section>
+      </div>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
