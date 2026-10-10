@@ -30,7 +30,10 @@
   async function api(method, url, body) {
     const headers = {};
     if (body !== undefined) headers['Content-Type'] = 'application/json';
-    if (state.token) headers.Authorization = `Bearer ${state.token}`;
+    if (state.token) {
+      headers.Authorization = `Bearer ${state.token}`;
+      headers['X-Session-Token'] = state.token;
+    }
     const res = await fetch(url, {
       method,
       headers,

@@ -69,10 +69,13 @@ function purge(store, now) {
   return removed;
 }
 
+// Accept the token either as "Authorization: Bearer <token>" or as "X-Session-Token: <token>".
+// Some preview proxies drop the Authorization header, so the custom header is the fallback.
 function currentUser(store, req) {
   const header = req.headers.authorization || '';
   const match = /^Bearer\s+(.+)$/i.exec(header);
-  return match ? store.userByToken(match[1].trim()) : null;
+  const token = match ? match[1].trim() : (req.headers['x-session-token'] || '').toString().trim();
+  return token ? store.userByToken(token) : null;
 }
 
 function requireUser(store, req) {
