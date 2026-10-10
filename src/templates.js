@@ -64,7 +64,7 @@ const TEMPLATES = Object.freeze({
     id: 'communication',
     label: 'Communication',
     description:
-      'Message the whole group (public) or only the organisers (organisers). Clears once the matter is handled.',
+      'Message the whole group, or only the organisers. Clears once the matter is handled.',
     organiserOnly: false,
     allowsReplies: true,
     replyLabel: 'Reply',

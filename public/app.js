@@ -232,7 +232,7 @@
       (err) => {
         if (err.code === 1) {
           state.loc.permission = 'denied';
-          setLocationMessage('Location was blocked. Allow it in your browser settings to use zones.', 'warn');
+          setLocationMessage('Your browser blocked location. Allow it in the site settings, then reload. Until then, use the demo scenarios.', 'warn');
         } else {
           setLocationMessage('Could not get a location fix. Try again somewhere with a clearer view.', 'warn');
         }
@@ -321,7 +321,7 @@
       text = text || 'Turn on location to see and post in your zone.';
     } else if (loc.permission === 'denied') {
       title = 'Location blocked';
-      text = text || 'Allow location in your browser settings to use zones.';
+      text = text || 'Your browser has blocked location for this site. Allow it in the site settings, then reload. Until then, use the demo scenarios.';
       dotClass += ' bad';
     } else if (loc.permission === 'unsupported') {
       title = 'Location unavailable';
@@ -336,7 +336,8 @@
     $('#loc-text').textContent = text;
 
     const on = loc.permission === 'granted';
-    $('#loc-on').classList.toggle('hidden', on || loc.permission === 'unsupported');
+    // Once the browser has blocked location, asking again does nothing: explain how to unblock it instead.
+    $('#loc-on').classList.toggle('hidden', on || loc.permission === 'unsupported' || loc.permission === 'denied');
     $('#loc-off').classList.toggle('hidden', !on && loc.permission !== 'denied' && !state.zone);
     $('#loc-leave').classList.toggle('hidden', !state.zone);
   }
