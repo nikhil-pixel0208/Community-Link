@@ -32,8 +32,6 @@ function demoEventsFor(zone, now) {
   const base = [
     { title: 'Free open-air acoustic concert', entry: 'open', free: true, price: null,
       startsAt: now + HOUR, endsAt: now + 3 * HOUR, entryNote: 'No sign-in. Just walk in.' },
-    { title: 'Samartha hackathon · kickoff', entry: 'registration', free: true, price: null,
-      startsAt: now + 30 * MIN, endsAt: now + 8 * HOUR, entryNote: 'Register on the hackathon portal to get a badge.' },
     { title: 'Open coding jam (bring your laptop)', entry: 'open', free: true, price: null,
       startsAt: now + 2 * HOUR, endsAt: now + 5 * HOUR, entryNote: 'Anyone can join.' },
     { title: 'Robotics basics workshop', entry: 'ticket', free: false, price: 299,
@@ -49,6 +47,50 @@ function demoEventsFor(zone, now) {
     demo: true,
     ...e,
   }));
+}
+
+// Real events, added once when the database is first created (see index.js). Times are relative to
+// now so they are current on first run. Organisers can remove them like any other event.
+function seedEvents(now) {
+  return [
+    {
+      zoneId: 'hack-hall',
+      title: 'Samartha Hackathon',
+      venue: 'Main Hall',
+      startsAt: now - HOUR,
+      endsAt: now + 47 * HOUR,
+      free: true,
+      price: null,
+      entry: 'registration',
+      entryNote: 'Sign in and register to take part.',
+      createdBy: 'seed',
+      createdByName: 'Community Link',
+      demo: false,
+    },
+    {
+      zoneId: 'campus-quad',
+      title: 'Vignan Grand Prix',
+      venue: 'College ground',
+      startsAt: now + HOUR,
+      endsAt: now + 5 * HOUR,
+      free: true,
+      price: null,
+      entry: 'open',
+      entryNote: 'Open to all. No sign-in needed.',
+      createdBy: 'seed',
+      createdByName: 'Community Link',
+      demo: false,
+    },
+  ];
+}
+
+// Writes the seed events once per database. Returns how many were added.
+function seedDefaultEvents(store, now) {
+  if (store.isSeeded()) return 0;
+  const seeds = seedEvents(now);
+  for (const e of seeds) store.addEvent(e);
+  store.markSeeded();
+  return seeds.length;
 }
 
 function eventsInZone(stored, zoneId, now) {
@@ -143,6 +185,8 @@ module.exports = {
   MAX_TITLE,
   requiresAuth,
   demoEventsFor,
+  seedEvents,
+  seedDefaultEvents,
   eventsInZone,
   present,
   validateEvent,

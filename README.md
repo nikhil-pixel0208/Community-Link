@@ -99,6 +99,8 @@ New endpoints: `GET /api/zones`, `GET /api/location/status`, `POST /api/location
 
 **Dashboard:** inside a zone, the dashboard lists that zone's events only. Each event is marked **Open entry · no sign-in** or **Sign-in required** (registration, college or photo ID, or ticket). Filters switch between them. Free and paid events are shown with their price.
 
+On first run the app adds two real events: **Samartha Hackathon** in the Main Hall (sign-in required) and **Vignan Grand Prix** in the Campus Quad (open to all). Their times are relative to the first run, and organisers can remove them.
+
 Organisers can add events to their current zone from the dashboard, and remove them. Sample events are generated for demo purposes and are marked "Demo". They are never saved to the database. The app doesn't check IDs or tickets; it only shows what the organiser set.
 
 **Map:** uses OpenStreetMap tiles through Leaflet, so no API key or billing account is needed. Leaflet is vendored in `public/vendor/leaflet`. The map shows the zone outlines and **only your own position**. Other people's positions are never shown. Note that the browser loads map tiles from OpenStreetMap, which receives the viewer's IP address and the area shown; the privacy notice says so.

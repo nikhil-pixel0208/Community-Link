@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const { DEFAULT_ZONE_ID: DEFAULT_ZONE } = require('./zones');
 
 function emptyDb() {
-  return { users: {}, posts: [], events: [] };
+  return { users: {}, posts: [], events: [], seeded: false };
 }
 
 class Store {
@@ -23,7 +23,7 @@ class Store {
       const raw = fs.readFileSync(this.file, 'utf8');
       const parsed = JSON.parse(raw);
       const posts = (parsed.posts || []).map((p) => ({ zoneId: DEFAULT_ZONE, ...p }));
-      this.db = { users: parsed.users || {}, posts, events: parsed.events || [] };
+      this.db = { users: parsed.users || {}, posts, events: parsed.events || [], seeded: !!parsed.seeded };
     } catch (e) {
       if (e.code !== 'ENOENT') throw e;
       this.db = emptyDb();
@@ -96,6 +96,15 @@ class Store {
     this.db.events.push(withId);
     this.save();
     return withId;
+  }
+
+  isSeeded() {
+    return !!this.db.seeded;
+  }
+
+  markSeeded() {
+    this.db.seeded = true;
+    this.save();
   }
 
   findEvent(id) {
