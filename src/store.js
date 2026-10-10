@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const { DEFAULT_ZONE_ID: DEFAULT_ZONE } = require('./zones');
 
 function emptyDb() {
-  return { users: {}, posts: [] };
+  return { users: {}, posts: [], events: [] };
 }
 
 class Store {
@@ -23,7 +23,7 @@ class Store {
       const raw = fs.readFileSync(this.file, 'utf8');
       const parsed = JSON.parse(raw);
       const posts = (parsed.posts || []).map((p) => ({ zoneId: DEFAULT_ZONE, ...p }));
-      this.db = { users: parsed.users || {}, posts };
+      this.db = { users: parsed.users || {}, posts, events: parsed.events || [] };
     } catch (e) {
       if (e.code !== 'ENOENT') throw e;
       this.db = emptyDb();
@@ -85,6 +85,28 @@ class Store {
     const changed = this.db.posts.length !== before;
     if (changed) this.save();
     return changed;
+  }
+
+  events() {
+    return this.db.events;
+  }
+
+  addEvent(event) {
+    const withId = { id: this.newId('evt'), ...event };
+    this.db.events.push(withId);
+    this.save();
+    return withId;
+  }
+
+  findEvent(id) {
+    return this.db.events.find((e) => e.id === id) || null;
+  }
+
+  removeEvent(id) {
+    const before = this.db.events.length;
+    this.db.events = this.db.events.filter((e) => e.id !== id);
+    if (this.db.events.length !== before) this.save();
+    return this.db.events.length !== before;
   }
 
   replacePosts(posts) {

@@ -273,3 +273,48 @@ input:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-colo
 .modal h2 { margin: 0 0 12px; font-size: 1.15rem; }
 .modal-list { margin: 0 0 18px; padding-left: 18px; display: grid; gap: 8px; color: #344054; font-size: .92rem; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* ---------- Zone dashboard ---------- */
+.dash {
+  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+  padding: 18px; box-shadow: var(--shadow);
+}
+.dash-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.dash-head h2 { margin: 0 0 2px; font-size: 1.15rem; }
+.dash-head p { margin: 0; }
+.dash-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.map-wrap { display: grid; gap: 8px; }
+.map {
+  width: 100%; height: 360px; border-radius: 12px; border: 1px solid var(--line);
+  background: #eef1f6; display: grid; place-items: center;
+}
+.map-wrap p { margin: 0; }
+.events-wrap { display: grid; gap: 10px; min-width: 0; }
+.filter-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.event-list { display: grid; gap: 10px; max-height: 420px; overflow-y: auto; padding-right: 2px; }
+.event {
+  border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 4px;
+  border-left-width: 4px;
+}
+.event.open { border-left-color: var(--ok); }
+.event.auth { border-left-color: var(--warn); }
+.event h3 { margin: 4px 0 0; font-size: 1rem; }
+.event p { margin: 0; }
+.event-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.badge { font-size: .72rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; }
+.badge.open { background: #e7f7ee; color: var(--ok); }
+.badge.auth { background: #fff1e0; color: var(--warn); }
+.price { font-size: .8rem; font-weight: 600; color: var(--muted); }
+.price.free { color: var(--ok); }
+.demo-tag { font-size: .7rem; color: var(--muted); border: 1px dashed var(--line); padding: 1px 7px; border-radius: 999px; }
+
+.event-form {
+  display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; margin-top: 4px;
+}
+.event-form-title { margin: 0; font-weight: 700; font-size: .95rem; }
+.inline-check { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: .88rem; color: #334056; align-self: end; }
+
+@media (max-width: 900px) {
+  .dash-grid { grid-template-columns: 1fr; }
+  .map { height: 260px; }
+}

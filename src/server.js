@@ -6,6 +6,7 @@ const path = require('path');
 
 const { Store } = require('./store');
 const { Presence, PresenceError } = require('./presence');
+const events = require('./events');
 const { TEMPLATES, TEMPLATE_IDS } = require('./templates');
 const lifecycle = require('./lifecycle');
 
@@ -176,6 +177,40 @@ function createApp({ dataFile, now = () => Date.now(), zones } = {}) {
     if (route === 'GET /api/me') {
       const user = requireUser(store, req);
       return sendJson(res, 200, { user });
+    }
+
+    // Public client settings. The Maps key is meant for the browser; restrict it by HTTP referrer in Google Cloud.
+    if (route === 'GET /api/config') {
+      return sendJson(res, 200, { mapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '' });
+    }
+
+    if (route === 'GET /api/events') {
+      const user = requireUser(store, req);
+      const member = presence.membership(user.id, t);
+      if (!member) return sendJson(res, 200, { events: [], zone: null, now: t });
+      const list = events.eventsInZone(store.events(), member.zoneId, t).map(events.present);
+      return sendJson(res, 200, { events: list, zone: presence.membershipView(user.id, t), now: t });
+    }
+
+    if (route === 'POST /api/events') {
+      const user = requireUser(store, req);
+      const member = presence.membership(user.id, t);
+      if (!member) throw new HttpError(403, 'Enter a zone before adding an event.');
+      const body = await readJson(req);
+      const result = events.validateEvent(body, user, t);
+      if (!result.ok) throw new HttpError(result.status, result.error);
+      const event = store.addEvent({ ...result.value, zoneId: member.zoneId });
+      return sendJson(res, 201, { event: events.present(event) });
+    }
+
+    const eventMatch = /^\/api\/events\/([^/]+)$/.exec(url.pathname);
+    if (eventMatch && req.method === 'DELETE') {
+      const user = requireUser(store, req);
+      if (user.role !== 'organiser') throw new HttpError(403, 'Only organisers can remove events.');
+      // Demo events are generated, not stored, so they cannot be removed.
+      const removed = store.removeEvent(eventMatch[1]);
+      if (!removed) throw new HttpError(404, 'Event not found.');
+      return sendJson(res, 200, { removed: true });
     }
 
     if (route === 'GET /api/zones') {

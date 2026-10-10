@@ -250,3 +250,56 @@ test('zones list exposes geometry but no one\'s presence', async () => {
     await app.close();
   }
 });
+
+test('events: organisers add to their zone; participants cannot; sign-in flag is set', async () => {
+  const clock = { t: Date.parse('2026-10-10T10:00:00Z') };
+  const app = await setup(clock);
+  try {
+    const student = await loginInHall(app.base, 'Asha');
+    const org = await loginInHall(app.base, 'Priya', 'organiser');
+    const body = { title: 'Free campus concert', venue: 'Main Hall', entry: 'open', free: true,
+      startsAt: new Date(clock.t + 3600000).toISOString(), endsAt: new Date(clock.t + 7200000).toISOString() };
+    assert.equal((await call(app.base, 'POST', '/api/events', student, body)).status, 403);
+    const created = await call(app.base, 'POST', '/api/events', org, body);
+    assert.equal(created.status, 201);
+    assert.equal(created.data.event.zoneId, 'hack-hall');
+
+    const list = await call(app.base, 'GET', '/api/events', student);
+    const mine = list.data.events.find((e) => e.title === 'Free campus concert');
+    assert.ok(mine);
+    assert.equal(mine.requiresAuth, false);
+    assert.equal(mine.demo, false);
+
+    const removed = await call(app.base, 'DELETE', `/api/events/${created.data.event.id}`, org);
+    assert.equal(removed.status, 200);
+    assert.equal((await call(app.base, 'DELETE', `/api/events/${created.data.event.id}`, org)).status, 404);
+  } finally {
+    await app.close();
+  }
+});
+
+test('events: outsiders get an empty list and cannot add events', async () => {
+  const app = await setup({ t: Date.parse('2026-10-10T10:00:00Z') });
+  try {
+    const outsider = await login(app.base, 'Ben', 'participant');
+    const r = await call(app.base, 'GET', '/api/events', outsider);
+    assert.deepEqual(r.data.events, []);
+    const org = await login(app.base, 'Priya', 'organiser');
+    const add = await call(app.base, 'POST', '/api/events', org, { title: 'x', entry: 'open', free: true,
+      startsAt: new Date(Date.now() + 3600000).toISOString(), endsAt: new Date(Date.now() + 7200000).toISOString() });
+    assert.equal(add.status, 403);
+  } finally {
+    await app.close();
+  }
+});
+
+test('config exposes the Maps key only as configured (empty by default)', async () => {
+  const app = await setup({ t: 0 });
+  try {
+    const r = await call(app.base, 'GET', '/api/config');
+    assert.equal(r.status, 200);
+    assert.equal(typeof r.data.mapsApiKey, 'string');
+  } finally {
+    await app.close();
+  }
+});

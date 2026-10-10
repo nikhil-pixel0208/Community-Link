@@ -4,26 +4,31 @@
   const TOKEN_KEY = 'communityLinkToken';
   const LOCATION_KEY = 'communityLinkLocation';
   const POLL_MS = 4000;
-  const CHECK_IN_MS = 30000;
+  const CHECK_IN_MS = 15000;     // server check-ins at most this often; the map itself updates live
 
   const state = {
     token: localStorage.getItem(TOKEN_KEY),
     user: null,
     templates: [],
+    zones: [],                   // public zone geometry, for the map
     posts: [],
-    zone: null,                 // { zoneId, zoneName, since } when inside a zone
+    events: [],
+    zone: null,                  // { zoneId, zoneName, since } when inside a zone
     filter: '',
+    eventFilter: 'all',
     composer: { template: 'communication', channel: 'public' },
     drafts: {},
     signature: '',
     pollTimer: null,
+    mapsKey: '',
+    me: null,                    // this user's own live position (kept in the browser only)
     loc: {
       // 'off' | 'granted' | 'denied' | 'unsupported'
       permission: localStorage.getItem(LOCATION_KEY) === 'on' ? 'granted' : 'off',
-      checkTimer: null,
+      watchId: null,
+      lastSent: 0,
       message: '',
-      tone: '',                 // '', 'good', 'warn'
-      busy: false,
+      tone: '',
     },
   };
 
@@ -109,6 +114,16 @@
     return `${Math.floor(s / 86400)}d ago`;
   }
 
+  const WHEN = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short',
+    hour: 'numeric', minute: '2-digit',
+  });
+  const TIME_ONLY = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' });
+
+  function formatRange(startsAt, endsAt) {
+    return `${WHEN.format(startsAt)} – ${TIME_ONLY.format(endsAt)}`;
+  }
+
   function toast(text) {
     const t = $('#toast');
     t.textContent = text;
@@ -134,7 +149,7 @@
 
   function showLogin() {
     stopPolling();
-    stopLocationChecks();
+    stopLocation();
     $('#login-view').classList.remove('hidden');
     $('#app-view').classList.add('hidden');
   }
@@ -145,6 +160,7 @@
     $('#me-avatar').textContent = initials(state.user.name);
     $('#me-avatar').style.background = `hsl(${hueFor(state.user.name)} 55% 45%)`;
     $('#me-text').textContent = `${state.user.name} · ${state.user.role === 'organiser' ? 'Organiser' : 'Participant'}`;
+    $('#event-form').classList.toggle('hidden', state.user.role !== 'organiser');
   }
 
   // ---- Login --------------------------------------------------------------
@@ -188,10 +204,11 @@
     state.drafts = {};
     state.signature = '';
     state.zone = null;
+    state.me = null;
     showLogin();
   });
 
-  // ---- Location: permission flow ------------------------------------------
+  // ---- Location: permission flow and live position -----------------------
 
   function openConsent() {
     $('#consent').classList.remove('hidden');
@@ -203,7 +220,7 @@
 
   $('#consent-allow').addEventListener('click', () => {
     closeConsent();
-    startRealLocation();
+    startLocation();
   });
   $('#consent-deny').addEventListener('click', closeConsent);
   $('#consent').addEventListener('click', (e) => {
@@ -216,47 +233,48 @@
     renderLocation();
   }
 
-  function startRealLocation() {
+  // Live tracking: the browser reports each new position. The map moves immediately, but the
+  // server only receives a check-in every CHECK_IN_MS, which keeps the zone rules meaningful.
+  function startLocation() {
     if (!('geolocation' in navigator)) {
       state.loc.permission = 'unsupported';
       setLocationMessage('This browser cannot provide location.', 'warn');
       return;
     }
-    navigator.geolocation.getCurrentPosition(
+    stopLocation();
+    state.loc.watchId = navigator.geolocation.watchPosition(
       (pos) => {
         state.loc.permission = 'granted';
         localStorage.setItem(LOCATION_KEY, 'on');
-        startLocationChecks();
-        checkInFix({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy });
+        const fix = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+        state.me = { ...fix, at: Date.now() };
+        updateMap();
+        if (Date.now() - state.loc.lastSent >= CHECK_IN_MS) {
+          state.loc.lastSent = Date.now();
+          checkInFix(fix);
+        }
       },
       (err) => {
         if (err.code === 1) {
           state.loc.permission = 'denied';
+          localStorage.removeItem(LOCATION_KEY);
           setLocationMessage('Your browser blocked location. Allow it in the site settings, then reload. Until then, use the demo scenarios.', 'warn');
+          stopLocation();
         } else {
-          setLocationMessage('Could not get a location fix. Try again somewhere with a clearer view.', 'warn');
+          setLocationMessage('Waiting for a clear GPS fix. Try again somewhere with a clearer view.', 'warn');
         }
-        localStorage.removeItem(LOCATION_KEY);
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 },
     );
   }
 
-  function startLocationChecks() {
-    stopLocationChecks();
-    state.loc.checkTimer = setInterval(() => {
-      if (state.loc.permission !== 'granted') return;
-      navigator.geolocation.getCurrentPosition(
-        (pos) => checkInFix({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-        () => setLocationMessage('Lost the location fix. Zone posts stay hidden until it returns.', 'warn'),
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-      );
-    }, CHECK_IN_MS);
-  }
-
-  function stopLocationChecks() {
-    if (state.loc.checkTimer) clearInterval(state.loc.checkTimer);
-    state.loc.checkTimer = null;
+  function stopLocation() {
+    if (state.loc.watchId !== null && 'geolocation' in navigator) {
+      navigator.geolocation.clearWatch(state.loc.watchId);
+    }
+    state.loc.watchId = null;
+    state.me = null;
+    updateMap();
   }
 
   // Sends one fix to the server, which decides membership and then forgets the coordinates.
@@ -278,12 +296,13 @@
     setLocationMessage(result.message, tone);
     refreshComposerAccess();
     loadPosts(true);
+    loadEvents();
   }
 
   $('#loc-on').addEventListener('click', openConsent);
 
   $('#loc-off').addEventListener('click', async () => {
-    stopLocationChecks();
+    stopLocation();
     localStorage.removeItem(LOCATION_KEY);
     state.loc.permission = 'off';
     try {
@@ -293,6 +312,7 @@
     setLocationMessage('Location is off. Everything about your location has been deleted.');
     refreshComposerAccess();
     loadPosts(true);
+    loadEvents();
   });
 
   $('#loc-leave').addEventListener('click', async () => {
@@ -303,6 +323,7 @@
     setLocationMessage('You left the zone. Zone posts are hidden.');
     refreshComposerAccess();
     loadPosts(true);
+    loadEvents();
   });
 
   function renderLocation() {
@@ -313,7 +334,6 @@
     let dotClass = 'dot';
 
     if (state.zone) {
-      // Membership is what matters to the user, whichever way the check-in was made.
       title = `In ${state.zone.zoneName}`;
       dotClass += ' good';
     } else if (loc.permission === 'off') {
@@ -321,7 +341,7 @@
       text = text || 'Turn on location to see and post in your zone.';
     } else if (loc.permission === 'denied') {
       title = 'Location blocked';
-      text = text || 'Your browser has blocked location for this site. Allow it in the site settings, then reload. Until then, use the demo scenarios.';
+      text = text || 'Allow location in your browser settings to use zones.';
       dotClass += ' bad';
     } else if (loc.permission === 'unsupported') {
       title = 'Location unavailable';
@@ -342,101 +362,226 @@
     $('#loc-leave').classList.toggle('hidden', !state.zone);
   }
 
-  // ---- Demo scenarios -----------------------------------------------------
-  // The team's demonstration: enter/exit, inaccurate GPS, spoofing and denied permission.
-  // Scenarios send real check-ins to the server, so the server's rules are what gets exercised.
+  // ---- Google Maps --------------------------------------------------------
 
-  const HALL = { lat: 16.9891, lng: 82.2475 };
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const mapState = { map: null, zoneShapes: [], me: null, loader: null, ready: false, lastZoneKey: '' };
 
-  function offsetPoint(p, northM, eastM) {
+  function loadMapsApi() {
+    if (window.google && window.google.maps) return Promise.resolve();
+    if (!state.mapsKey) return Promise.reject(new Error('Map key not set'));
+    if (!mapState.loader) {
+      mapState.loader = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(state.mapsKey)}`;
+        s.async = true;
+        s.onload = resolve;
+        s.onerror = () => reject(new Error('Google Maps could not load'));
+        document.head.append(s);
+      });
+    }
+    return mapState.loader;
+  }
+
+  function zoneStyle(isMine) {
     return {
-      lat: p.lat + northM / 111320,
-      lng: p.lng + eastM / (111320 * Math.cos((p.lat * Math.PI) / 180)),
+      strokeColor: isMine ? '#17915a' : '#3b6cf6',
+      strokeOpacity: 0.9,
+      strokeWeight: isMine ? 3 : 2,
+      fillColor: isMine ? '#17915a' : '#3b6cf6',
+      fillOpacity: isMine ? 0.18 : 0.08,
     };
   }
 
-  async function demoStep(label, fix) {
-    $('#demo-status').textContent = `${label}…`;
-    const result = await checkInFix(fix);
-    if (result) {
-      $('#demo-status').textContent = `${label}: ${result.state} (${result.reason})`;
+  function drawZones(maps) {
+    for (const shape of mapState.zoneShapes) shape.setMap(null);
+    mapState.zoneShapes = [];
+    const mine = state.zone ? state.zone.zoneId : null;
+    const bounds = new maps.LatLngBounds();
+    for (const z of state.zones) {
+      const style = { ...zoneStyle(z.id === mine), map: mapState.map, clickable: false };
+      if (z.kind === 'circle') {
+        const shape = new maps.Circle({ ...style, center: z.center, radius: z.radiusM });
+        mapState.zoneShapes.push(shape);
+        bounds.union(shape.getBounds());
+      } else {
+        const shape = new maps.Polygon({ ...style, paths: z.points });
+        mapState.zoneShapes.push(shape);
+        for (const p of z.points) bounds.extend(p);
+      }
     }
-    return result;
+    return bounds;
   }
 
-  const SCENARIOS = {
-    enter: {
-      label: 'Walk into Main Hall',
-      run: async () => {
-        for (const [i, n] of [300, 200, 100, 0].entries()) {
-          await demoStep(`Step ${i + 1}/4`, { ...offsetPoint(HALL, n, 0), accuracy: 10 });
-          if (i < 3) await sleep(5000);
-        }
-      },
-    },
-    walkOut: {
-      label: 'Walk out of Main Hall',
-      run: async () => {
-        for (const [i, n] of [0, 100, 200, 300].entries()) {
-          await demoStep(`Step ${i + 1}/4`, { ...offsetPoint(HALL, n, 0), accuracy: 10 });
-          if (i < 3) await sleep(5000);
-        }
-      },
-    },
-    poorGps: {
-      label: 'Poor GPS (300 m accuracy)',
-      run: async () => {
-        await demoStep('Inaccurate fix', { ...HALL, accuracy: 300 });
-      },
-    },
-    spoof: {
-      label: 'Spoofed jump (5 km in 1 s)',
-      run: async () => {
-        await demoStep('Genuine fix', { ...HALL, accuracy: 10 });
-        await sleep(1000);
-        await demoStep('Jump to 5 km away', { ...offsetPoint(HALL, 5000, 0), accuracy: 10 });
-      },
-    },
-    edge: {
-      label: 'Standing at the zone edge',
-      run: async () => {
-        await demoStep('Edge fix', { ...offsetPoint(HALL, 160, 0), accuracy: 40 });
-      },
-    },
-    denied: {
-      label: 'Location denied',
-      run: async () => {
-        stopLocationChecks();
-        localStorage.removeItem(LOCATION_KEY);
-        state.loc.permission = 'denied';
-        try { await api('POST', '/api/location/forget'); } catch (_) { /* ignore */ }
-        state.zone = null;
-        setLocationMessage('Location denied. Zone posts are hidden; the rest of the app still works.', 'warn');
-        refreshComposerAccess();
-        loadPosts(true);
-        $('#demo-status').textContent = 'Location denied: no zone access';
-      },
-    },
-  };
-
-  document.querySelectorAll('[data-scenario]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const scenario = SCENARIOS[btn.dataset.scenario];
-      if (!scenario || demoBusy) return;
-      demoBusy = true;
-      document.querySelectorAll('[data-scenario]').forEach((b) => { b.disabled = true; });
-      try {
-        await scenario.run();
-      } catch (err) {
-        $('#demo-status').textContent = `Scenario failed: ${err.message}`;
-      } finally {
-        demoBusy = false;
-        document.querySelectorAll('[data-scenario]').forEach((b) => { b.disabled = false; });
+  async function updateMap() {
+    const wrap = $('#map');
+    if (!state.mapsKey) {
+      $('#map-note').textContent = 'Map is off: the server has no Google Maps key (GOOGLE_MAPS_API_KEY).';
+      return;
+    }
+    try {
+      await loadMapsApi();
+    } catch (err) {
+      $('#map-note').textContent = `${err.message}. Check the key and its allowed referrers.`;
+      return;
+    }
+    const maps = window.google.maps;
+    if (!mapState.map) {
+      mapState.map = new maps.Map(wrap, {
+        center: state.zones.length ? state.zones[0].center : { lat: 0, lng: 0 },
+        zoom: 17,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+      });
+    }
+    // Redraw zone outlines only when the zone set or membership changes.
+    const key = `${state.zones.map((z) => z.id).join(',')}|${state.zone ? state.zone.zoneId : ''}`;
+    if (key !== mapState.lastZoneKey) {
+      mapState.lastZoneKey = key;
+      const bounds = drawZones(maps);
+      if (!state.me && !bounds.isEmpty()) mapState.map.fitBounds(bounds, 40);
+    }
+    // Only this user's own marker is drawn. Other people's positions are never shown.
+    if (state.me) {
+      const pos = { lat: state.me.lat, lng: state.me.lng };
+      if (!mapState.me) {
+        mapState.me = new maps.Marker({
+          map: mapState.map,
+          title: 'You',
+          icon: { path: maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#3b6cf6', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
+        });
       }
+      mapState.me.setMap(mapState.map);
+      mapState.me.setPosition(pos);
+      mapState.map.panTo(pos);
+      $('#map-note').textContent = `Your position (blue dot) is shown only to you. Accuracy about ${Math.round(state.me.accuracy)} m.`;
+    } else {
+      if (mapState.me) mapState.me.setMap(null);
+      $('#map-note').textContent = state.zone
+        ? `Your zone is outlined in green. Only you can see your position.`
+        : 'Zones are outlined in blue. Turn on location to see where you are.';
+    }
+    wrap.classList.remove('hidden');
+  }
+
+  async function loadZones() {
+    try {
+      const data = await api('GET', '/api/zones');
+      state.zones = data.zones;
+    } catch (_) { /* map simply stays empty */ }
+  }
+
+  // ---- Zone dashboard: events ---------------------------------------------
+
+  function eventMatchesFilter(e) {
+    if (state.eventFilter === 'open') return !e.requiresAuth;
+    if (state.eventFilter === 'auth') return e.requiresAuth;
+    return true;
+  }
+
+  function renderEvents() {
+    const list = $('#event-list');
+    list.innerHTML = '';
+    const all = state.events;
+    const openCount = all.filter((e) => !e.requiresAuth).length;
+    const authCount = all.length - openCount;
+
+    $('#dash-count').textContent = state.zone
+      ? `${openCount} open · ${authCount} sign-in`
+      : 'Not in a zone';
+
+    document.querySelectorAll('[data-ef]').forEach((b) => {
+      b.classList.toggle('on', b.dataset.ef === state.eventFilter);
+    });
+
+    const shown = all.filter(eventMatchesFilter);
+    for (const e of shown) list.append(renderEvent(e));
+
+    const empty = $('#event-empty');
+    empty.classList.toggle('hidden', shown.length > 0);
+    empty.textContent = !state.zone
+      ? 'Enter a zone to see the events happening there.'
+      : (state.eventFilter === 'open' ? 'No open events right now.' : 'No events match this filter.');
+  }
+
+  function renderEvent(e) {
+    const open = !e.requiresAuth;
+    const price = e.free ? 'Free' : `₹${e.price}`;
+    const card = el('article', { class: `event ${open ? 'open' : 'auth'}` },
+      el('div', { class: 'event-top' },
+        el('span', { class: `badge ${open ? 'open' : 'auth'}`, text: open ? 'Open entry' : 'Sign-in required' }),
+        el('span', { class: `price${e.free ? ' free' : ''}`, text: price }),
+        e.demo ? el('span', { class: 'demo-tag', text: 'Demo' }) : null,
+      ),
+      el('h3', { text: e.title }),
+      el('p', { class: 'muted small', text: `${formatRange(e.startsAt, e.endsAt)}${e.venue ? ` · ${e.venue}` : ''}` }),
+      el('p', { class: 'small', text: `${e.entryLabel}${e.entryNote ? ` — ${e.entryNote}` : ''}` }),
+    );
+    if (state.user && state.user.role === 'organiser' && !e.demo) {
+      const btn = el('button', { type: 'button', class: 'btn ghost small', text: 'Remove' });
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Remove "${e.title}"?`)) return;
+        try {
+          await api('DELETE', `/api/events/${e.id}`);
+          await loadEvents();
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+      card.append(el('div', { class: 'actions' }, btn));
+    }
+    return card;
+  }
+
+  async function loadEvents() {
+    if (!state.user) return;
+    try {
+      const data = await api('GET', '/api/events');
+      state.events = data.events;
+      state.zone = data.zone;
+      renderEvents();
+      updateMap();
+      $('#dash-sub').textContent = state.zone
+        ? `Happening in ${state.zone.zoneName}. Only events in your zone are shown.`
+        : 'Turn on location and enter a zone to see its events.';
+    } catch (_) { /* keep the last list */ }
+  }
+
+  document.querySelectorAll('[data-ef]').forEach((b) => {
+    b.addEventListener('click', () => {
+      state.eventFilter = b.dataset.ef;
+      renderEvents();
     });
   });
-  let demoBusy = false;
+
+  $('#event-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target.elements;
+    $('#event-error').textContent = '';
+    const payload = {
+      title: f.evTitle.value,
+      venue: f.evVenue.value,
+      startsAt: f.evStarts.value ? new Date(f.evStarts.value).toISOString() : '',
+      endsAt: f.evEnds.value ? new Date(f.evEnds.value).toISOString() : '',
+      entry: f.evEntry.value,
+      free: f.evFree.checked,
+      price: f.evPrice.value,
+      entryNote: f.evNote.value,
+    };
+    try {
+      await api('POST', '/api/events', payload);
+      e.target.reset();
+      $('#ev-price-row').classList.add('hidden');
+      toast('Event added');
+      await loadEvents();
+    } catch (err) {
+      $('#event-error').textContent = err.message;
+    }
+  });
+
+  $('#ev-free').addEventListener('change', (e) => {
+    $('#ev-price-row').classList.toggle('hidden', e.target.checked);
+  });
 
   // ---- Composer -----------------------------------------------------------
 
@@ -660,15 +805,14 @@
     for (const p of posts) feed.append(renderPost(p));
     const empty = $('#feed-empty');
     empty.classList.toggle('hidden', posts.length > 0);
+    empty.innerHTML = '';
     if (!state.zone) {
-      empty.innerHTML = '';
       empty.append(
         el('strong', { text: 'Enter a zone to see its posts.' }),
         el('br'),
         document.createTextNode('Turn on location in the left panel, or try a demo scenario.'),
       );
     } else {
-      empty.innerHTML = '';
       empty.append(
         el('strong', { text: 'Nothing here yet.' }),
         el('br'),
@@ -734,8 +878,101 @@
 
   function startPolling() {
     stopPolling();
-    state.pollTimer = setInterval(() => loadPosts(false), POLL_MS);
+    state.pollTimer = setInterval(() => {
+      loadPosts(false);
+      loadEvents();
+    }, POLL_MS);
   }
+
+  // ---- Demo scenarios -----------------------------------------------------
+  // Scenarios send real check-ins to the server, so the server's rules are what gets exercised.
+
+  const HALL = { lat: 16.9891, lng: 82.2475 };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function offsetPoint(p, northM, eastM) {
+    return {
+      lat: p.lat + northM / 111320,
+      lng: p.lng + eastM / (111320 * Math.cos((p.lat * Math.PI) / 180)),
+    };
+  }
+
+  async function demoStep(label, fix) {
+    $('#demo-status').textContent = `${label}…`;
+    const result = await checkInFix(fix);
+    if (result) {
+      $('#demo-status').textContent = `${label}: ${result.state} (${result.reason})`;
+    }
+    return result;
+  }
+
+  const SCENARIOS = {
+    enter: {
+      run: async () => {
+        for (const [i, n] of [300, 200, 100, 0].entries()) {
+          await demoStep(`Step ${i + 1}/4`, { ...offsetPoint(HALL, n, 0), accuracy: 10 });
+          if (i < 3) await sleep(5000);
+        }
+      },
+    },
+    walkOut: {
+      run: async () => {
+        for (const [i, n] of [0, 100, 200, 300].entries()) {
+          await demoStep(`Step ${i + 1}/4`, { ...offsetPoint(HALL, n, 0), accuracy: 10 });
+          if (i < 3) await sleep(5000);
+        }
+      },
+    },
+    poorGps: {
+      run: async () => {
+        await demoStep('Inaccurate fix', { ...HALL, accuracy: 300 });
+      },
+    },
+    spoof: {
+      run: async () => {
+        await demoStep('Genuine fix', { ...HALL, accuracy: 10 });
+        await sleep(1000);
+        await demoStep('Jump to 5 km away', { ...offsetPoint(HALL, 5000, 0), accuracy: 10 });
+      },
+    },
+    edge: {
+      run: async () => {
+        await demoStep('Edge fix', { ...offsetPoint(HALL, 160, 0), accuracy: 40 });
+      },
+    },
+    denied: {
+      run: async () => {
+        stopLocation();
+        localStorage.removeItem(LOCATION_KEY);
+        state.loc.permission = 'denied';
+        try { await api('POST', '/api/location/forget'); } catch (_) { /* ignore */ }
+        state.zone = null;
+        setLocationMessage('Location denied. Zone posts are hidden; the rest of the app still works.', 'warn');
+        refreshComposerAccess();
+        loadPosts(true);
+        loadEvents();
+        $('#demo-status').textContent = 'Location denied: no zone access';
+      },
+    },
+  };
+
+  let demoBusy = false;
+  document.querySelectorAll('[data-scenario]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const scenario = SCENARIOS[btn.dataset.scenario];
+      if (!scenario || demoBusy) return;
+      demoBusy = true;
+      document.querySelectorAll('[data-scenario]').forEach((b) => { b.disabled = true; });
+      try {
+        await scenario.run();
+      } catch (err) {
+        $('#demo-status').textContent = `Scenario failed: ${err.message}`;
+      } finally {
+        demoBusy = false;
+        document.querySelectorAll('[data-scenario]').forEach((b) => { b.disabled = false; });
+      }
+    });
+  });
 
   // ---- Boot ---------------------------------------------------------------
 
@@ -743,14 +980,16 @@
     if (!state.token) return showLogin();
     try {
       status('Checking your session…');
-      const [{ user }, { templates }, status2] = await Promise.all([
+      const [{ user }, { templates }, status2, config] = await Promise.all([
         api('GET', '/api/me'),
         api('GET', '/api/templates'),
         api('GET', '/api/location/status'),
+        api('GET', '/api/config'),
       ]);
       state.user = user;
       state.templates = templates;
       state.zone = status2.membership;
+      state.mapsKey = config.mapsApiKey || '';
     } catch (err) {
       localStorage.removeItem(TOKEN_KEY);
       state.token = null;
@@ -763,12 +1002,14 @@
     showApp();
     renderChips();
     selectTemplate(state.composer.template);
+    await loadZones();
     if (state.loc.permission === 'granted') {
-      // Resume where the user left off: ask the browser for a fresh fix straight away.
-      startRealLocation();
+      // Resume where the user left off: start live tracking again.
+      startLocation();
     }
     renderLocation();
-    await loadPosts(true);
+    await Promise.all([loadPosts(true), loadEvents()]);
+    updateMap();
     startPolling();
   }
 

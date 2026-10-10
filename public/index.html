@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Community Link</title>
-    <link rel="stylesheet" href="/styles.css?v=9" />
+    <link rel="stylesheet" href="/styles.css?v=11" />
   </head>
   <body>
     <!-- Login -->
@@ -95,6 +95,73 @@
         </aside>
 
         <main class="main">
+          <section class="dash" aria-labelledby="dash-title">
+            <div class="dash-head">
+              <div>
+                <h2 id="dash-title">Zone dashboard</h2>
+                <p id="dash-sub" class="muted small">Turn on location and enter a zone to see its events.</p>
+              </div>
+              <span id="dash-count" class="zone-pill">Not in a zone</span>
+            </div>
+
+            <div class="dash-grid">
+              <div class="map-wrap">
+                <div id="map" class="map"></div>
+                <p id="map-note" class="muted small"></p>
+              </div>
+
+              <div class="events-wrap">
+                <div class="filter-row" role="tablist" aria-label="Filter events">
+                  <button type="button" class="chip" data-ef="all">All</button>
+                  <button type="button" class="chip" data-ef="open">Open entry · no sign-in</button>
+                  <button type="button" class="chip" data-ef="auth">Sign-in required</button>
+                </div>
+
+                <div id="event-list" class="event-list"></div>
+                <p id="event-empty" class="muted small hidden"></p>
+
+                <form id="event-form" class="event-form hidden">
+                  <p class="event-form-title">Add an event to this zone</p>
+                  <label class="field"><span>Title</span>
+                    <input id="ev-title" name="evTitle" maxlength="120" required />
+                  </label>
+                  <div class="details-grid">
+                    <label class="field"><span>Venue</span>
+                      <input name="evVenue" maxlength="120" />
+                    </label>
+                    <label class="field"><span>Entry</span>
+                      <select name="evEntry">
+                        <option value="open">Open entry · no sign-in</option>
+                        <option value="registration">Registration required</option>
+                        <option value="id_required">College or photo ID required</option>
+                        <option value="ticket">Ticket required</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="details-grid">
+                    <label class="field"><span>Starts</span>
+                      <input name="evStarts" type="datetime-local" required />
+                    </label>
+                    <label class="field"><span>Ends</span>
+                      <input name="evEnds" type="datetime-local" required />
+                    </label>
+                  </div>
+                  <div class="details-grid">
+                    <label class="inline-check"><input name="evFree" id="ev-free" type="checkbox" checked /> Free</label>
+                    <label id="ev-price-row" class="field hidden"><span>Price (₹)</span>
+                      <input name="evPrice" type="number" min="0" step="1" />
+                    </label>
+                  </div>
+                  <label class="field"><span>Entry note (optional)</span>
+                    <input name="evNote" maxlength="200" placeholder="e.g. Bring your college ID" />
+                  </label>
+                  <button type="submit" class="btn primary small">Add event</button>
+                  <p id="event-error" class="error" role="alert"></p>
+                </form>
+              </div>
+            </div>
+          </section>
+
           <div id="feed" class="feed"></div>
           <p id="feed-empty" class="empty hidden">
             <strong>Nothing here yet.</strong><br />
