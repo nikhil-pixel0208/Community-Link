@@ -88,6 +88,7 @@
     e.preventDefault();
     const f = e.target.elements;
     $('#login-error').textContent = '';
+    $('#login-status').textContent = 'Submitting…';
     try {
       const role = document.querySelector('input[name="role"]:checked').value;
       const data = await api('POST', '/api/login', {
@@ -318,6 +319,8 @@
     startPolling();
   }
 
+  const status = (t) => { const n = document.getElementById('login-status'); if (n) n.textContent = t; };
+  status('Script running — ready.');
   syncRoleFields();
   boot();
 })();

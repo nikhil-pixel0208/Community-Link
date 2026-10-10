@@ -225,6 +225,7 @@ function createApp({ dataFile, now = () => Date.now() } = {}) {
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    if (url.pathname.startsWith('/api/')) console.log(new Date().toISOString(), req.method, url.pathname);
     try {
       if (url.pathname.startsWith('/api/')) {
         await handleApi(req, res, url);
