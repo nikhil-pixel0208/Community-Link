@@ -35,8 +35,10 @@ test('participants can create lost & found and requirement posts', () => {
   }
 });
 
-test('promotions and announcements are organiser-only', () => {
-  for (const template of ['promotion', 'announcement']) {
+test('announcements are organiser-only; promotions are open to participants', () => {
+  const open = lc.validatePost({ template: 'promotion', title: 'x', body: 'y' }, participant, NOW);
+  assert.equal(open.ok, true);
+  for (const template of ['announcement']) {
     const denied = lc.validatePost({ template, title: 'x', body: 'y' }, participant, NOW);
     assert.equal(denied.ok, false);
     assert.equal(denied.status, 403);
@@ -68,7 +70,7 @@ test('invalid channel for a template is rejected', () => {
 
 test('timeline defaults to the template value and is bounded', () => {
   const def = lc.validatePost({ template: 'lost_found', title: 'x', body: 'y' }, participant, NOW);
-  assert.equal(def.value.expiresAt - NOW, 240 * 60 * 1000);
+  assert.equal(def.value.expiresAt - NOW, 1440 * 60 * 1000);
 
   const tooShort = lc.validatePost({ template: 'lost_found', title: 'x', body: 'y', ttlMinutes: 1 }, participant, NOW);
   assert.equal(tooShort.ok, false);

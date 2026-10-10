@@ -3,11 +3,11 @@
 // Template definitions for Community Link posts.
 //
 // Each template describes how a post behaves:
-//  - organiserOnly: only organisers may create posts from this template
+//  - organiserOnly: only organisers may create posts from this template (Announcement only)
 //  - allowsReplies: whether other users can reply (e.g. "I found it", "I can help")
 //  - closeLabel:    wording shown to the author when the post is closed
 //  - channels:      communication only. 'public' = whole group, 'organisers' = 1:1 with organisers
-//  - ttl:           default / maximum lifetime of a post, in minutes
+//  - ttl:           default (24 h) / maximum lifetime of a post, in minutes
 
 const MINUTE = 60 * 1000;
 
@@ -21,7 +21,7 @@ const TEMPLATES = Object.freeze({
     replyLabel: 'I found it',
     closeLabel: 'Item returned – resolve',
     channels: ['public'],
-    ttlMinutes: { default: 240, max: 1440 },
+    ttlMinutes: { default: 1440, max: 1440 },
     usesLocation: true,
   },
   requirement: {
@@ -39,13 +39,13 @@ const TEMPLATES = Object.freeze({
   promotion: {
     id: 'promotion',
     label: 'Promotion',
-    description: 'Organiser-only promotional posts. They expire automatically.',
-    organiserOnly: true,
+    description: 'Promotions from the group or organisers. They expire automatically after 24 hours by default.',
+    organiserOnly: false,
     allowsReplies: false,
     replyLabel: null,
     closeLabel: 'Withdraw',
     channels: ['public'],
-    ttlMinutes: { default: 720, max: 10080 },
+    ttlMinutes: { default: 1440, max: 10080 },
     usesLocation: false,
   },
   announcement: {
@@ -57,7 +57,7 @@ const TEMPLATES = Object.freeze({
     replyLabel: null,
     closeLabel: 'Withdraw',
     channels: ['public'],
-    ttlMinutes: { default: 240, max: 10080 },
+    ttlMinutes: { default: 1440, max: 10080 },
     usesLocation: false,
   },
   communication: {
@@ -70,7 +70,7 @@ const TEMPLATES = Object.freeze({
     replyLabel: 'Reply',
     closeLabel: 'Done – clear message',
     channels: ['public', 'organisers'],
-    ttlMinutes: { default: 60, max: 1440 },
+    ttlMinutes: { default: 1440, max: 1440 },
     usesLocation: false,
   },
 });

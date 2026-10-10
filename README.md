@@ -19,9 +19,11 @@ Data is kept in `data/db.json`, which is git-ignored.
 | --- | --- | --- | --- |
 | Lost & Found | Anyone | "I found it" | Author resolves it, or the timeline ends |
 | Requirement | Anyone | "I can help" | Author marks it met, or the timeline ends |
-| Promotion | Organisers | – | Timeline ends (or organiser withdraws) |
-| Announcement | Organisers | – | Timeline ends (or organiser withdraws) |
+| Promotion | Anyone | – | Timeline ends (default 24 h), or the author withdraws it |
+| Announcement | Organisers | – | Timeline ends (default 24 h), or the organiser withdraws it |
 | Communication | Anyone | Yes | Author marks it done, or the timeline ends |
+
+Every template's default timeline is 24 hours (`1440` minutes). Authors can set a shorter time, up to each template's maximum.
 
 ## Communication channels
 
