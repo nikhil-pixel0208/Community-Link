@@ -32,6 +32,8 @@ function demoEventsFor(zone, now) {
   const base = [
     { title: 'Free open-air acoustic concert', entry: 'open', free: true, price: null,
       startsAt: now + HOUR, endsAt: now + 3 * HOUR, entryNote: 'No sign-in. Just walk in.' },
+    { title: 'Samartha hackathon · kickoff', entry: 'registration', free: true, price: null,
+      startsAt: now + 30 * MIN, endsAt: now + 8 * HOUR, entryNote: 'Register on the hackathon portal to get a badge.' },
     { title: 'Open coding jam (bring your laptop)', entry: 'open', free: true, price: null,
       startsAt: now + 2 * HOUR, endsAt: now + 5 * HOUR, entryNote: 'Anyone can join.' },
     { title: 'Robotics basics workshop', entry: 'ticket', free: false, price: 299,
@@ -54,7 +56,7 @@ function demoEventsFor(zone, now) {
 function seedEvents(now) {
   return [
     {
-      zoneId: 'hack-hall',
+      zoneId: 'my-test-zone',
       title: 'Samartha Hackathon',
       venue: 'Main Hall',
       startsAt: now - HOUR,
@@ -68,7 +70,7 @@ function seedEvents(now) {
       demo: false,
     },
     {
-      zoneId: 'campus-quad',
+      zoneId: 'my-test-zone',
       title: 'Vignan Grand Prix',
       venue: 'College ground',
       startsAt: now + HOUR,
@@ -84,10 +86,22 @@ function seedEvents(now) {
   ];
 }
 
-// Writes the seed events once per database. Returns how many were added.
+// Writes the seed events once per database. On later starts it keeps their zone in line with the
+// seed list, so changing a seed's zone here also moves the stored copy. Returns the number changed.
 function seedDefaultEvents(store, now) {
-  if (store.isSeeded()) return 0;
   const seeds = seedEvents(now);
+  if (store.isSeeded()) {
+    let moved = 0;
+    for (const seed of seeds) {
+      const existing = store.events().find((e) => e.createdBy === 'seed' && e.title === seed.title);
+      if (existing && existing.zoneId !== seed.zoneId) {
+        existing.zoneId = seed.zoneId;
+        moved += 1;
+      }
+    }
+    if (moved) store.save();
+    return moved;
+  }
   for (const e of seeds) store.addEvent(e);
   store.markSeeded();
   return seeds.length;
