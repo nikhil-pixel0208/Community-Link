@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Community Link</title>
-    <link rel="stylesheet" href="/styles.css?v=5" />
+    <link rel="stylesheet" href="/styles.css?v=6" />
   </head>
   <body>
     <header class="topbar">
@@ -82,11 +82,15 @@
     </main>
 
     <script>
+      window.addEventListener("unhandledrejection", function (e) {
+        var box = document.getElementById("login-error");
+        if (box) box.textContent = "Error: " + (e.reason && e.reason.message ? e.reason.message : e.reason);
+      });
       window.addEventListener("error", function (e) {
         var box = document.getElementById("login-error");
         if (box) box.textContent = "Script error: " + e.message;
       });
     </script>
-    <script src="/app.js?v=5"></script>
+    <script src="/app.js?v=6"></script>
   </body>
 </html>

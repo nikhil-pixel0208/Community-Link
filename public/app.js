@@ -88,7 +88,7 @@
     e.preventDefault();
     const f = e.target.elements;
     $('#login-error').textContent = '';
-    $('#login-status').textContent = 'Submitting…';
+    status('Submitting…');
     try {
       const role = document.querySelector('input[name="role"]:checked').value;
       const data = await api('POST', '/api/login', {
@@ -301,6 +301,7 @@
   async function boot() {
     if (!state.token) return showLogin();
     try {
+      status('Checking your session…');
       const [{ user }, { templates }] = await Promise.all([
         api('GET', '/api/me'),
         api('GET', '/api/templates'),
@@ -310,8 +311,12 @@
     } catch (err) {
       localStorage.removeItem(TOKEN_KEY);
       state.token = null;
-      return showLogin();
+      showLogin();
+      status('');
+      $('#login-error').textContent = 'Could not load your session: ' + err.message;
+      return;
     }
+    status('Opening feed…');
     showApp();
     renderTemplateOptions();
     renderComposeForTemplate();
@@ -319,7 +324,11 @@
     startPolling();
   }
 
-  const status = (t) => { const n = document.getElementById('login-status'); if (n) n.textContent = t; };
+  function status(text) {
+    const n = document.getElementById('login-status');
+    if (n) n.textContent = text;
+  }
+
   status('Script running — ready.');
   syncRoleFields();
   boot();
