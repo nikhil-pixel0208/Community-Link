@@ -1,0 +1,15 @@
+{
+  "name": "community-link",
+  "version": "0.1.0",
+  "description": "Zone-based community posts: lost & found, requirements, promotions, announcements and communication.",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}
