@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Community Link</title>
-    <link rel="stylesheet" href="/styles.css?v=8" />
+    <link rel="stylesheet" href="/styles.css?v=9" />
   </head>
   <body>
     <!-- Login -->
@@ -59,6 +59,34 @@
 
       <div class="layout">
         <aside class="rail">
+          <section class="loc-card" aria-live="polite">
+            <div class="loc-head">
+              <span id="loc-dot" class="dot"></span>
+              <strong id="loc-title">Location off</strong>
+            </div>
+            <p id="loc-text" class="muted small"></p>
+            <div class="loc-actions">
+              <button id="loc-on" type="button" class="btn primary small">Turn on location</button>
+              <button id="loc-leave" type="button" class="btn ghost small hidden">Leave zone</button>
+              <button id="loc-off" type="button" class="btn ghost small hidden">Turn off &amp; delete</button>
+            </div>
+            <a href="/privacy.html" class="small link-subtle">Privacy notice</a>
+          </section>
+
+          <details class="demo">
+            <summary>Demo scenarios</summary>
+            <p class="muted small">Runs real check-ins through the server's zone rules.</p>
+            <div class="demo-grid">
+              <button type="button" class="btn ghost small" data-scenario="enter">Walk into Main Hall</button>
+              <button type="button" class="btn ghost small" data-scenario="walkOut">Walk out</button>
+              <button type="button" class="btn ghost small" data-scenario="edge">Zone edge</button>
+              <button type="button" class="btn ghost small" data-scenario="poorGps">Poor GPS</button>
+              <button type="button" class="btn ghost small" data-scenario="spoof">Spoofed jump</button>
+              <button type="button" class="btn ghost small" data-scenario="denied">Location denied</button>
+            </div>
+            <p id="demo-status" class="muted small"></p>
+          </details>
+
           <p class="rail-title">Show</p>
           <nav id="rail" class="rail-list"></nav>
           <div class="rail-note muted small">
@@ -74,7 +102,10 @@
           </p>
 
           <form id="composer" class="composer">
-            <div id="template-chips" class="chips" role="radiogroup" aria-label="Message type"></div>
+            <div class="composer-top">
+              <div id="template-chips" class="chips" role="radiogroup" aria-label="Message type"></div>
+              <span id="composer-zone" class="zone-pill">Not in a zone</span>
+            </div>
             <p id="template-desc" class="muted small"></p>
 
             <div id="channel-row" class="channel-row">
@@ -85,7 +116,7 @@
 
             <div class="input-row">
               <textarea id="msg-input" rows="1" maxlength="2000" placeholder="Write a message…"></textarea>
-              <button type="submit" class="btn primary">Send</button>
+              <button id="composer-submit" type="submit" class="btn primary">Send</button>
             </div>
 
             <details id="details" class="details">
@@ -107,6 +138,23 @@
       </div>
     </div>
 
+    <!-- Location consent: explains what is used, kept and deleted before the browser asks -->
+    <div id="consent" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="consent-title">
+      <div class="modal">
+        <h2 id="consent-title">Use your location for zones?</h2>
+        <ul class="modal-list">
+          <li>Used only to tell whether you're inside a zone, such as the Main Hall.</li>
+          <li>Other people never see where you are, and positions never appear in posts.</li>
+          <li>Coordinates aren't stored. Your last reading lasts up to 5 minutes, and zone membership lapses after 10.</li>
+          <li>GPS is approximate. You can leave a zone or turn location off at any time, which deletes what we hold.</li>
+        </ul>
+        <div class="modal-actions">
+          <button id="consent-deny" type="button" class="btn ghost">Not now</button>
+          <button id="consent-allow" type="button" class="btn primary">Allow location</button>
+        </div>
+      </div>
+    </div>
+
     <div id="toast" class="toast hidden" role="status"></div>
 
     <script>
@@ -119,6 +167,6 @@
         if (box) box.textContent = "Script error: " + e.message;
       });
     </script>
-    <script src="/app.js?v=8"></script>
+    <script src="/app.js?v=10"></script>
   </body>
 </html>

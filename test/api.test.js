@@ -37,12 +37,25 @@ async function login(base, name, role = 'participant') {
   return r.data.token;
 }
 
+// Hall centre, good accuracy. Two consecutive fixes are needed to enter (debounce).
+const HALL = { lat: 16.9891, lng: 82.2475, accuracy: 10 };
+async function enterHall(base, token) {
+  await call(base, 'POST', '/api/location/check-in', token, HALL);
+  const r = await call(base, 'POST', '/api/location/check-in', token, HALL);
+  assert.equal(r.data.state, 'entered');
+  return token;
+}
+
+async function loginInHall(base, name, role = 'participant') {
+  return enterHall(base, await login(base, name, role));
+}
+
 test('lost & found: post is removed once the owner resolves it', async () => {
   const clock = { t: Date.parse('2026-10-10T10:00:00Z') };
   const app = await setup(clock);
   try {
-    const owner = await login(app.base, 'Asha');
-    const finder = await login(app.base, 'Ben');
+    const owner = await loginInHall(app.base, 'Asha');
+    const finder = await loginInHall(app.base, 'Ben');
 
     const created = await call(app.base, 'POST', '/api/posts', owner, {
       template: 'lost_found', title: 'Lost watch', body: 'Silver watch, engraved "A"', location: 'Hall B',
@@ -72,8 +85,8 @@ test('requirement: only the author can close, others cannot', async () => {
   const clock = { t: Date.parse('2026-10-10T10:00:00Z') };
   const app = await setup(clock);
   try {
-    const owner = await login(app.base, 'Asha');
-    const other = await login(app.base, 'Ben');
+    const owner = await loginInHall(app.base, 'Asha');
+    const other = await loginInHall(app.base, 'Ben');
     const { data } = await call(app.base, 'POST', '/api/posts', owner, {
       template: 'requirement', title: 'Need Python dev', body: 'For 2 days',
     });
@@ -88,7 +101,7 @@ test('posts expire automatically when their timeline runs out', async () => {
   const clock = { t: Date.parse('2026-10-10T10:00:00Z') };
   const app = await setup(clock);
   try {
-    const owner = await login(app.base, 'Asha');
+    const owner = await loginInHall(app.base, 'Asha');
     await call(app.base, 'POST', '/api/posts', owner, {
       template: 'communication', channel: 'public', title: 'Quiet hour', body: 'Please keep it down', ttlMinutes: 10,
     });
@@ -107,9 +120,9 @@ test('communication: organisers-channel message is hidden from other participant
   const clock = { t: Date.parse('2026-10-10T10:00:00Z') };
   const app = await setup(clock);
   try {
-    const student = await login(app.base, 'Asha');
-    const peer = await login(app.base, 'Ben');
-    const org = await login(app.base, 'Priya', 'organiser');
+    const student = await loginInHall(app.base, 'Asha');
+    const peer = await loginInHall(app.base, 'Ben');
+    const org = await loginInHall(app.base, 'Priya', 'organiser');
 
     const created = await call(app.base, 'POST', '/api/posts', student, {
       template: 'communication', channel: 'organisers', title: 'PPT readiness', body: 'Not started yet, can we get 30 more min?',
@@ -128,8 +141,8 @@ test('participants cannot post announcements; organisers can', async () => {
   const clock = { t: Date.parse('2026-10-10T10:00:00Z') };
   const app = await setup(clock);
   try {
-    const student = await login(app.base, 'Asha');
-    const org = await login(app.base, 'Priya', 'organiser');
+    const student = await loginInHall(app.base, 'Asha');
+    const org = await loginInHall(app.base, 'Priya', 'organiser');
     const body = { template: 'announcement', title: 'Lunch', body: 'Served at 1pm' };
     assert.equal((await call(app.base, 'POST', '/api/posts', student, body)).status, 403);
     assert.equal((await call(app.base, 'POST', '/api/posts', org, body)).status, 201);
@@ -153,6 +166,86 @@ test('protected routes reject missing tokens', async () => {
   const app = await setup({ t: 0 });
   try {
     assert.equal((await call(app.base, 'GET', '/api/posts')).status, 401);
+  } finally {
+    await app.close();
+  }
+});
+
+test('posting requires being inside a zone', async () => {
+  const app = await setup({ t: Date.parse('2026-10-10T10:00:00Z') });
+  try {
+    const outsider = await login(app.base, 'Asha');
+    const r = await call(app.base, 'POST', '/api/posts', outsider, { template: 'communication', body: 'hi' });
+    assert.equal(r.status, 403);
+    assert.match(r.data.error, /zone/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('zone posts are visible only to people inside that zone; replies are blocked outside', async () => {
+  const app = await setup({ t: Date.parse('2026-10-10T10:00:00Z') });
+  try {
+    const inside = await loginInHall(app.base, 'Asha');
+    const outside = await login(app.base, 'Ben');
+    const created = await call(app.base, 'POST', '/api/posts', inside, {
+      template: 'lost_found', body: 'Lost a silver watch near the stage',
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.data.post.zoneId, 'hack-hall');
+
+    const outsiderFeed = await call(app.base, 'GET', '/api/posts', outside);
+    assert.equal(outsiderFeed.data.posts.length, 0, 'outsiders see nothing');
+
+    const reply = await call(app.base, 'POST', `/api/posts/${created.data.post.id}/responses`, outside, { text: 'found it' });
+    assert.equal(reply.status, 404);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a rejected low-accuracy fix does not let someone in', async () => {
+  const app = await setup({ t: Date.parse('2026-10-10T10:00:00Z') });
+  try {
+    const token = await login(app.base, 'Ben');
+    const bad = { lat: 16.9891, lng: 82.2475, accuracy: 400 };
+    await call(app.base, 'POST', '/api/location/check-in', token, bad);
+    const r = await call(app.base, 'POST', '/api/location/check-in', token, bad);
+    assert.equal(r.data.state, 'rejected');
+    assert.equal(r.data.reason, 'low_accuracy');
+    assert.equal((await call(app.base, 'GET', '/api/location/status', token)).data.membership, null);
+  } finally {
+    await app.close();
+  }
+});
+
+test('leaving a zone or forgetting location hides zone posts immediately', async () => {
+  const app = await setup({ t: Date.parse('2026-10-10T10:00:00Z') });
+  try {
+    const token = await loginInHall(app.base, 'Asha');
+    await call(app.base, 'POST', '/api/posts', token, { template: 'communication', body: 'Anyone for a study group?' });
+    assert.equal((await call(app.base, 'GET', '/api/posts', token)).data.posts.length, 1);
+
+    await call(app.base, 'POST', '/api/location/leave', token);
+    assert.equal((await call(app.base, 'GET', '/api/posts', token)).data.posts.length, 0);
+
+    await enterHall(app.base, token);
+    assert.equal((await call(app.base, 'GET', '/api/posts', token)).data.posts.length, 1);
+    await call(app.base, 'POST', '/api/location/forget', token);
+    assert.equal((await call(app.base, 'GET', '/api/location/status', token)).data.membership, null);
+  } finally {
+    await app.close();
+  }
+});
+
+test('zones list exposes geometry but no one\'s presence', async () => {
+  const app = await setup({ t: 0 });
+  try {
+    const token = await loginInHall(app.base, 'Asha');
+    const r = await call(app.base, 'GET', '/api/zones', token);
+    assert.equal(r.status, 200);
+    assert.equal(r.data.zones.length, 2);
+    assert.equal(JSON.stringify(r.data).includes('usr_'), false);
   } finally {
     await app.close();
   }

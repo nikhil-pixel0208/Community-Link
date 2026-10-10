@@ -141,6 +141,7 @@ function feedFor(posts, user, now, filter = {}) {
     .filter((p) => isLive(p, now) && canView(p, user))
     .filter((p) => !filter.template || p.template === filter.template)
     .filter((p) => !filter.channel || p.channel === filter.channel)
+    .filter((p) => !filter.zoneId || p.zoneId === filter.zoneId)
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 

@@ -65,3 +65,30 @@ Send the token as `Authorization: Bearer <token>`.
 - Login is name-based with a shared organiser code. There is no real account verification yet.
 - Zones are not implemented yet; all posts share one zone.
 - Storage is a single JSON file, suitable for a demo, not for production scale.
+
+## Zones and location (GPS)
+
+Based on the DropZone problem statement (section 5).
+
+**Zones** (`src/zones.js`) are circles or polygons. The two demo zones use placeholder coordinates near Kakinada; replace them with the real venue coordinates before an event.
+
+**Entry and exit** (`src/presence.js`, `src/geo.js`):
+- Entering needs two consecutive fixes inside the zone, so a single noisy reading doesn't count.
+- Exiting needs a fix clearly outside (the boundary, plus the GPS accuracy, plus a 15 m buffer), so standing at the edge doesn't flicker.
+- A fix with accuracy worse than 150 m is rejected and never changes membership.
+- A fix that implies more than 50 m/s (180 km/h) since the last accepted fix is treated as spoofed and rejected.
+- Membership lapses after 10 minutes without a check-in.
+
+**Location permission** is opt-in. The app explains what location is used for before the browser asks, and each user can leave a zone or turn location off, which deletes what the server holds.
+
+**Data minimisation:** coordinates are evaluated and discarded. They are not stored, not put in posts, and not shown to other users. Presence lives only in memory, so a restart clears it. Posts store only the zone they belong to.
+
+**Posting and reading** need current membership. Posts from other zones behave as if they don't exist.
+
+**Demo scenarios** (the "Demo scenarios" panel) send real check-ins through the server rules: walk into the hall, walk out, zone edge, poor GPS, spoofed jump, and location denied.
+
+**Privacy notice:** `/privacy.html`.
+
+**Not yet built:** reporting, blocking, a moderator queue, and rate limits. The PDF requires these as well; they are the next items.
+
+New endpoints: `GET /api/zones`, `GET /api/location/status`, `POST /api/location/check-in` with `{ lat, lng, accuracy }`, `POST /api/location/leave`, `POST /api/location/forget`.

@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { Store } = require('./store');
+const { Presence, PresenceError } = require('./presence');
 const { TEMPLATES, TEMPLATE_IDS } = require('./templates');
 const lifecycle = require('./lifecycle');
 
@@ -118,6 +119,7 @@ function present(post, user, now) {
     createdAt: post.createdAt,
     expiresAt: post.expiresAt,
     secondsLeft: Math.max(0, Math.round((post.expiresAt - now) / 1000)),
+    zoneId: post.zoneId,
     author: { id: post.authorId, name: post.authorName, role: post.authorRole },
     isMine: !!user && user.id === post.authorId,
     canReply: lifecycle.canReply(post, user, now),
@@ -133,8 +135,9 @@ function present(post, user, now) {
   };
 }
 
-function createApp({ dataFile, now = () => Date.now() } = {}) {
+function createApp({ dataFile, now = () => Date.now(), zones } = {}) {
   const store = new Store(dataFile);
+  const presence = new Presence({ zones });
 
   async function handleApi(req, res, url) {
     const t = now();
@@ -175,23 +178,69 @@ function createApp({ dataFile, now = () => Date.now() } = {}) {
       return sendJson(res, 200, { user });
     }
 
+    if (route === 'GET /api/zones') {
+      requireUser(store, req);
+      return sendJson(res, 200, { zones: presence.zoneList() });
+    }
+
+    if (route === 'GET /api/location/status') {
+      const user = requireUser(store, req);
+      return sendJson(res, 200, { membership: presence.membershipView(user.id, t), zones: presence.zoneList() });
+    }
+
+    // Body: { lat, lng, accuracy }. Coordinates are evaluated and then discarded; only the
+    // resulting zone membership state is kept (in memory).
+    if (route === 'POST /api/location/check-in') {
+      const user = requireUser(store, req);
+      const body = await readJson(req);
+      try {
+        const result = presence.checkIn(user.id, body, t);
+        return sendJson(res, 200, result);
+      } catch (e) {
+        if (e instanceof PresenceError) throw new HttpError(e.status, e.message);
+        throw e;
+      }
+    }
+
+    if (route === 'POST /api/location/leave') {
+      const user = requireUser(store, req);
+      presence.leave(user.id);
+      return sendJson(res, 200, { membership: null });
+    }
+
+    if (route === 'POST /api/location/forget') {
+      const user = requireUser(store, req);
+      presence.forget(user.id);
+      return sendJson(res, 200, { membership: null, forgotten: true });
+    }
+
     if (route === 'GET /api/posts') {
       const user = requireUser(store, req);
       purge(store, t);
+      const member = presence.membership(user.id, t);
+      if (!member) return sendJson(res, 200, { posts: [], zone: null, now: t });
       const posts = lifecycle.feedFor(store.posts(), user, t, {
         template: url.searchParams.get('template') || undefined,
         channel: url.searchParams.get('channel') || undefined,
+        zoneId: member.zoneId,
       });
-      return sendJson(res, 200, { posts: posts.map((p) => present(p, user, t)), now: t });
+      return sendJson(res, 200, {
+        posts: posts.map((p) => present(p, user, t)),
+        zone: presence.membershipView(user.id, t),
+        now: t,
+      });
     }
 
     if (route === 'POST /api/posts') {
       const user = requireUser(store, req);
+      const member = presence.membership(user.id, t);
+      if (!member) throw new HttpError(403, 'Enter a zone before posting.');
       const body = await readJson(req);
       const result = lifecycle.validatePost(body, user, t);
       if (!result.ok) throw new HttpError(result.status, result.error);
       const post = store.addPost({
         ...result.value,
+        zoneId: member.zoneId,
         authorId: user.id,
         authorName: user.name,
         authorRole: user.role,
@@ -204,7 +253,11 @@ function createApp({ dataFile, now = () => Date.now() } = {}) {
       const user = requireUser(store, req);
       purge(store, t);
       const post = store.findPost(replyMatch[1]);
-      if (!post || !lifecycle.isLive(post, t)) throw new HttpError(404, 'Post not found or already closed.');
+      const member = presence.membership(user.id, t);
+      // Posts from other zones are invisible, so they behave as if they don't exist.
+      if (!post || !lifecycle.isLive(post, t) || !member || member.zoneId !== post.zoneId) {
+        throw new HttpError(404, 'Post not found or already closed.');
+      }
       const body = await readJson(req);
       const result = lifecycle.validateReply(body, post, user, t);
       if (!result.ok) throw new HttpError(result.status, result.error);
@@ -246,7 +299,10 @@ function createApp({ dataFile, now = () => Date.now() } = {}) {
     }
   });
 
-  const sweeper = setInterval(() => purge(store, now()), SWEEP_INTERVAL_MS);
+  const sweeper = setInterval(() => {
+    purge(store, now());
+    presence.sweep(now());
+  }, SWEEP_INTERVAL_MS);
   sweeper.unref();
   server.on('close', () => clearInterval(sweeper));
 

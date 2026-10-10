@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { DEFAULT_ZONE_ID: DEFAULT_ZONE } = require('./zones');
 
 function emptyDb() {
   return { users: {}, posts: [] };
@@ -21,7 +22,8 @@ class Store {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const parsed = JSON.parse(raw);
-      this.db = { users: parsed.users || {}, posts: parsed.posts || [] };
+      const posts = (parsed.posts || []).map((p) => ({ zoneId: DEFAULT_ZONE, ...p }));
+      this.db = { users: parsed.users || {}, posts };
     } catch (e) {
       if (e.code !== 'ENOENT') throw e;
       this.db = emptyDb();

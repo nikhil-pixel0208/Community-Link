@@ -2,18 +2,29 @@
 
 (function () {
   const TOKEN_KEY = 'communityLinkToken';
+  const LOCATION_KEY = 'communityLinkLocation';
   const POLL_MS = 4000;
+  const CHECK_IN_MS = 30000;
 
   const state = {
     token: localStorage.getItem(TOKEN_KEY),
     user: null,
     templates: [],
     posts: [],
+    zone: null,                 // { zoneId, zoneName, since } when inside a zone
     filter: '',
     composer: { template: 'communication', channel: 'public' },
-    drafts: {},          // reply drafts, kept across re-renders
-    signature: '',       // last rendered post list (ignores countdown values)
+    drafts: {},
+    signature: '',
     pollTimer: null,
+    loc: {
+      // 'off' | 'granted' | 'denied' | 'unsupported'
+      permission: localStorage.getItem(LOCATION_KEY) === 'on' ? 'granted' : 'off',
+      checkTimer: null,
+      message: '',
+      tone: '',                 // '', 'good', 'warn'
+      busy: false,
+    },
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -123,6 +134,7 @@
 
   function showLogin() {
     stopPolling();
+    stopLocationChecks();
     $('#login-view').classList.remove('hidden');
     $('#app-view').classList.add('hidden');
   }
@@ -166,14 +178,264 @@
     }
   });
 
-  $('#logout').addEventListener('click', () => {
+  $('#logout').addEventListener('click', async () => {
+    try {
+      await api('POST', '/api/location/forget');
+    } catch (_) { /* logging out regardless */ }
     localStorage.removeItem(TOKEN_KEY);
     state.token = null;
     state.user = null;
     state.drafts = {};
     state.signature = '';
+    state.zone = null;
     showLogin();
   });
+
+  // ---- Location: permission flow ------------------------------------------
+
+  function openConsent() {
+    $('#consent').classList.remove('hidden');
+  }
+
+  function closeConsent() {
+    $('#consent').classList.add('hidden');
+  }
+
+  $('#consent-allow').addEventListener('click', () => {
+    closeConsent();
+    startRealLocation();
+  });
+  $('#consent-deny').addEventListener('click', closeConsent);
+  $('#consent').addEventListener('click', (e) => {
+    if (e.target.id === 'consent') closeConsent();
+  });
+
+  function setLocationMessage(text, tone = '') {
+    state.loc.message = text;
+    state.loc.tone = tone;
+    renderLocation();
+  }
+
+  function startRealLocation() {
+    if (!('geolocation' in navigator)) {
+      state.loc.permission = 'unsupported';
+      setLocationMessage('This browser cannot provide location.', 'warn');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        state.loc.permission = 'granted';
+        localStorage.setItem(LOCATION_KEY, 'on');
+        startLocationChecks();
+        checkInFix({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy });
+      },
+      (err) => {
+        if (err.code === 1) {
+          state.loc.permission = 'denied';
+          setLocationMessage('Location was blocked. Allow it in your browser settings to use zones.', 'warn');
+        } else {
+          setLocationMessage('Could not get a location fix. Try again somewhere with a clearer view.', 'warn');
+        }
+        localStorage.removeItem(LOCATION_KEY);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  }
+
+  function startLocationChecks() {
+    stopLocationChecks();
+    state.loc.checkTimer = setInterval(() => {
+      if (state.loc.permission !== 'granted') return;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => checkInFix({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+        () => setLocationMessage('Lost the location fix. Zone posts stay hidden until it returns.', 'warn'),
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+      );
+    }, CHECK_IN_MS);
+  }
+
+  function stopLocationChecks() {
+    if (state.loc.checkTimer) clearInterval(state.loc.checkTimer);
+    state.loc.checkTimer = null;
+  }
+
+  // Sends one fix to the server, which decides membership and then forgets the coordinates.
+  async function checkInFix(fix) {
+    try {
+      const result = await api('POST', '/api/location/check-in', fix);
+      applyCheckIn(result);
+      return result;
+    } catch (err) {
+      setLocationMessage(err.message, 'warn');
+      return null;
+    }
+  }
+
+  function applyCheckIn(result) {
+    state.zone = result.membership;
+    const tone = result.state === 'entered' || result.state === 'member' ? 'good'
+      : result.state === 'rejected' || result.state === 'uncertain' || result.state === 'pending' ? 'warn' : '';
+    setLocationMessage(result.message, tone);
+    refreshComposerAccess();
+    loadPosts(true);
+  }
+
+  $('#loc-on').addEventListener('click', openConsent);
+
+  $('#loc-off').addEventListener('click', async () => {
+    stopLocationChecks();
+    localStorage.removeItem(LOCATION_KEY);
+    state.loc.permission = 'off';
+    try {
+      await api('POST', '/api/location/forget');
+    } catch (_) { /* nothing to forget */ }
+    state.zone = null;
+    setLocationMessage('Location is off. Everything about your location has been deleted.');
+    refreshComposerAccess();
+    loadPosts(true);
+  });
+
+  $('#loc-leave').addEventListener('click', async () => {
+    try {
+      await api('POST', '/api/location/leave');
+    } catch (_) { /* ignore */ }
+    state.zone = null;
+    setLocationMessage('You left the zone. Zone posts are hidden.');
+    refreshComposerAccess();
+    loadPosts(true);
+  });
+
+  function renderLocation() {
+    const loc = state.loc;
+    const dot = $('#loc-dot');
+    let title;
+    let text = loc.message;
+    let dotClass = 'dot';
+
+    if (state.zone) {
+      // Membership is what matters to the user, whichever way the check-in was made.
+      title = `In ${state.zone.zoneName}`;
+      dotClass += ' good';
+    } else if (loc.permission === 'off') {
+      title = 'Location off';
+      text = text || 'Turn on location to see and post in your zone.';
+    } else if (loc.permission === 'denied') {
+      title = 'Location blocked';
+      text = text || 'Allow location in your browser settings to use zones.';
+      dotClass += ' bad';
+    } else if (loc.permission === 'unsupported') {
+      title = 'Location unavailable';
+      dotClass += ' bad';
+    } else {
+      title = 'Not in a zone';
+      dotClass += ' idle';
+    }
+    if (loc.tone === 'warn') dotClass += ' warn';
+    dot.className = dotClass;
+    $('#loc-title').textContent = title;
+    $('#loc-text').textContent = text;
+
+    const on = loc.permission === 'granted';
+    $('#loc-on').classList.toggle('hidden', on || loc.permission === 'unsupported');
+    $('#loc-off').classList.toggle('hidden', !on && loc.permission !== 'denied' && !state.zone);
+    $('#loc-leave').classList.toggle('hidden', !state.zone);
+  }
+
+  // ---- Demo scenarios -----------------------------------------------------
+  // The team's demonstration: enter/exit, inaccurate GPS, spoofing and denied permission.
+  // Scenarios send real check-ins to the server, so the server's rules are what gets exercised.
+
+  const HALL = { lat: 16.9891, lng: 82.2475 };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function offsetPoint(p, northM, eastM) {
+    return {
+      lat: p.lat + northM / 111320,
+      lng: p.lng + eastM / (111320 * Math.cos((p.lat * Math.PI) / 180)),
+    };
+  }
+
+  async function demoStep(label, fix) {
+    $('#demo-status').textContent = `${label}…`;
+    const result = await checkInFix(fix);
+    if (result) {
+      $('#demo-status').textContent = `${label}: ${result.state} (${result.reason})`;
+    }
+    return result;
+  }
+
+  const SCENARIOS = {
+    enter: {
+      label: 'Walk into Main Hall',
+      run: async () => {
+        for (const [i, n] of [300, 200, 100, 0].entries()) {
+          await demoStep(`Step ${i + 1}/4`, { ...offsetPoint(HALL, n, 0), accuracy: 10 });
+          if (i < 3) await sleep(5000);
+        }
+      },
+    },
+    walkOut: {
+      label: 'Walk out of Main Hall',
+      run: async () => {
+        for (const [i, n] of [0, 100, 200, 300].entries()) {
+          await demoStep(`Step ${i + 1}/4`, { ...offsetPoint(HALL, n, 0), accuracy: 10 });
+          if (i < 3) await sleep(5000);
+        }
+      },
+    },
+    poorGps: {
+      label: 'Poor GPS (300 m accuracy)',
+      run: async () => {
+        await demoStep('Inaccurate fix', { ...HALL, accuracy: 300 });
+      },
+    },
+    spoof: {
+      label: 'Spoofed jump (5 km in 1 s)',
+      run: async () => {
+        await demoStep('Genuine fix', { ...HALL, accuracy: 10 });
+        await sleep(1000);
+        await demoStep('Jump to 5 km away', { ...offsetPoint(HALL, 5000, 0), accuracy: 10 });
+      },
+    },
+    edge: {
+      label: 'Standing at the zone edge',
+      run: async () => {
+        await demoStep('Edge fix', { ...offsetPoint(HALL, 160, 0), accuracy: 40 });
+      },
+    },
+    denied: {
+      label: 'Location denied',
+      run: async () => {
+        stopLocationChecks();
+        localStorage.removeItem(LOCATION_KEY);
+        state.loc.permission = 'denied';
+        try { await api('POST', '/api/location/forget'); } catch (_) { /* ignore */ }
+        state.zone = null;
+        setLocationMessage('Location denied. Zone posts are hidden; the rest of the app still works.', 'warn');
+        refreshComposerAccess();
+        loadPosts(true);
+        $('#demo-status').textContent = 'Location denied: no zone access';
+      },
+    },
+  };
+
+  document.querySelectorAll('[data-scenario]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const scenario = SCENARIOS[btn.dataset.scenario];
+      if (!scenario || demoBusy) return;
+      demoBusy = true;
+      document.querySelectorAll('[data-scenario]').forEach((b) => { b.disabled = true; });
+      try {
+        await scenario.run();
+      } catch (err) {
+        $('#demo-status').textContent = `Scenario failed: ${err.message}`;
+      } finally {
+        demoBusy = false;
+        document.querySelectorAll('[data-scenario]').forEach((b) => { b.disabled = false; });
+      }
+    });
+  });
+  let demoBusy = false;
 
   // ---- Composer -----------------------------------------------------------
 
@@ -237,6 +499,18 @@
     ttl.max = tpl.ttlMinutes.max;
   }
 
+  // Posting needs a zone: when outside one, the composer is disabled and explains why.
+  function refreshComposerAccess() {
+    const inZone = !!state.zone;
+    $('#msg-input').disabled = !inZone;
+    $('#msg-input').placeholder = inZone
+      ? `Message ${state.zone.zoneName}…`
+      : 'Enter a zone to post. Turn on location in the left panel.';
+    $('#composer-submit').disabled = !inZone;
+    $('#composer-zone').textContent = inZone ? `Posting in ${state.zone.zoneName}` : 'Not in a zone';
+    $('#composer-zone').classList.toggle('on', inZone);
+  }
+
   function selectTemplate(id) {
     const tpl = templateById(id);
     if (!tpl || !canUseTemplate(tpl)) return;
@@ -252,7 +526,7 @@
     $('#composer-error').textContent = '';
     const input = $('#msg-input');
     const tpl = templateById(state.composer.template);
-    if (!tpl) return;
+    if (!tpl || !state.zone) return;
     const payload = {
       template: tpl.id,
       body: input.value,
@@ -267,18 +541,17 @@
       $('#msg-location').value = '';
       $('#msg-ttl').value = '';
       toast('Sent');
-      await loadPosts();
+      await loadPosts(true);
     } catch (err) {
       $('#composer-error').textContent = err.message;
+      if (err.status === 403) await refreshStatus();
     }
   });
 
-  // Grow the message box with its content.
   $('#msg-input').addEventListener('input', (e) => {
     e.target.style.height = 'auto';
     e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
   });
-  // Enter sends, Shift+Enter adds a new line.
   $('#msg-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -352,7 +625,7 @@
         try {
           await api('POST', `/api/posts/${post.id}/responses`, { text: input.value });
           delete state.drafts[post.id];
-          await loadPosts();
+          await loadPosts(true);
         } catch (err) {
           toast(err.message);
         }
@@ -367,7 +640,7 @@
         try {
           await api('DELETE', `/api/posts/${post.id}`);
           delete state.drafts[post.id];
-          await loadPosts();
+          await loadPosts(true);
         } catch (err) {
           toast(err.message);
         }
@@ -384,23 +657,42 @@
     feed.innerHTML = '';
     const posts = state.posts.filter((p) => !state.filter || p.template === state.filter);
     for (const p of posts) feed.append(renderPost(p));
-    $('#feed-empty').classList.toggle('hidden', posts.length > 0);
+    const empty = $('#feed-empty');
+    empty.classList.toggle('hidden', posts.length > 0);
+    if (!state.zone) {
+      empty.innerHTML = '';
+      empty.append(
+        el('strong', { text: 'Enter a zone to see its posts.' }),
+        el('br'),
+        document.createTextNode('Turn on location in the left panel, or try a demo scenario.'),
+      );
+    } else {
+      empty.innerHTML = '';
+      empty.append(
+        el('strong', { text: 'Nothing here yet.' }),
+        el('br'),
+        document.createTextNode(`Say something to ${state.zone.zoneName}.`),
+      );
+    }
   }
 
-  function signatureOf(posts) {
-    return JSON.stringify(posts.map((p) => ({ ...p, secondsLeft: undefined })));
+  function signatureOf(posts, zone) {
+    return JSON.stringify({ zone: zone ? zone.zoneId : null, posts: posts.map((p) => ({ ...p, secondsLeft: undefined })) });
   }
 
-  async function loadPosts() {
+  async function loadPosts(force = false) {
     if (!state.user) return;
     try {
       const data = await api('GET', '/api/posts');
-      const sig = signatureOf(data.posts);
+      state.zone = data.zone;
+      const sig = signatureOf(data.posts, data.zone);
       state.posts = data.posts;
-      if (sig !== state.signature) {
+      refreshComposerAccess();
+      if (force || sig !== state.signature) {
         state.signature = sig;
         renderFeed();
       }
+      renderLocation();
     } catch (err) {
       if (err.status === 401) {
         localStorage.removeItem(TOKEN_KEY);
@@ -408,6 +700,15 @@
         showLogin();
       }
     }
+  }
+
+  async function refreshStatus() {
+    try {
+      const data = await api('GET', '/api/location/status');
+      state.zone = data.membership;
+      refreshComposerAccess();
+      renderLocation();
+    } catch (_) { /* keep current view */ }
   }
 
   // Countdown ticks locally; posts whose time runs out are removed straight away.
@@ -420,7 +721,7 @@
     const before = state.posts.length;
     state.posts = state.posts.filter((p) => p.expiresAt > now);
     if (state.posts.length !== before) {
-      state.signature = signatureOf(state.posts);
+      state.signature = signatureOf(state.posts, state.zone);
       renderFeed();
     }
   }, 1000);
@@ -432,7 +733,7 @@
 
   function startPolling() {
     stopPolling();
-    state.pollTimer = setInterval(loadPosts, POLL_MS);
+    state.pollTimer = setInterval(() => loadPosts(false), POLL_MS);
   }
 
   // ---- Boot ---------------------------------------------------------------
@@ -441,12 +742,14 @@
     if (!state.token) return showLogin();
     try {
       status('Checking your session…');
-      const [{ user }, { templates }] = await Promise.all([
+      const [{ user }, { templates }, status2] = await Promise.all([
         api('GET', '/api/me'),
         api('GET', '/api/templates'),
+        api('GET', '/api/location/status'),
       ]);
       state.user = user;
       state.templates = templates;
+      state.zone = status2.membership;
     } catch (err) {
       localStorage.removeItem(TOKEN_KEY);
       state.token = null;
@@ -459,7 +762,12 @@
     showApp();
     renderChips();
     selectTemplate(state.composer.template);
-    await loadPosts();
+    if (state.loc.permission === 'granted') {
+      // Resume where the user left off: ask the browser for a fresh fix straight away.
+      startRealLocation();
+    }
+    renderLocation();
+    await loadPosts(true);
     startPolling();
   }
 

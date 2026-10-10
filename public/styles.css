@@ -226,3 +226,50 @@ input:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-colo
   .details-grid { grid-template-columns: 1fr; }
   .me-text { display: none; }
 }
+
+/* ---------- Location ---------- */
+.dot { width: 9px; height: 9px; border-radius: 50%; background: #b8c0cc; display: inline-block; flex: none; }
+.dot.good { background: var(--ok); }
+.dot.bad { background: var(--danger); }
+.dot.idle { background: #98a2b3; }
+.dot.warn { background: var(--warn); }
+
+.loc-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px; box-shadow: var(--shadow); display: grid; gap: 8px; margin-bottom: 12px;
+}
+.loc-head { display: flex; align-items: center; gap: 8px; }
+.loc-card p { margin: 0; }
+.loc-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.link-subtle { color: var(--accent); text-decoration: none; font-size: .82rem; }
+.link-subtle:hover { text-decoration: underline; }
+
+.demo {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 14px; margin-bottom: 14px;
+}
+.demo summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+.demo-grid { display: grid; gap: 6px; margin: 10px 0 6px; }
+.demo-grid .btn { text-align: left; }
+.demo button:disabled { opacity: .5; cursor: wait; }
+
+.zone-pill {
+  font-size: .8rem; font-weight: 600; white-space: nowrap;
+  padding: 4px 10px; border-radius: 999px; background: #eef1f6; color: var(--muted);
+}
+.zone-pill.on { background: #e7f7ee; color: var(--ok); }
+.composer-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.composer textarea:disabled, .composer button:disabled { opacity: .55; cursor: not-allowed; }
+
+/* ---------- Consent modal ---------- */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(16, 24, 40, .45);
+  display: grid; place-items: center; padding: 20px; z-index: 30;
+}
+.modal {
+  background: var(--card); border-radius: 16px; padding: 24px; width: min(460px, 100%);
+  box-shadow: 0 20px 50px rgba(16, 24, 40, .25);
+}
+.modal h2 { margin: 0 0 12px; font-size: 1.15rem; }
+.modal-list { margin: 0 0 18px; padding-left: 18px; display: grid; gap: 8px; color: #344054; font-size: .92rem; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }

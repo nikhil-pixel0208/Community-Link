@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy notice · Community Link</title>
+    <link rel="stylesheet" href="/styles.css?v=9" />
+    <style>
+      .notice { max-width: 720px; margin: 32px auto; padding: 0 20px 48px; line-height: 1.6; }
+      .notice h2 { margin-top: 28px; font-size: 1.1rem; }
+      .notice li { margin: 6px 0; }
+      .notice .box { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><span class="logo small">CL</span> Community Link</div>
+      <a href="/" class="btn ghost small">Back to the app</a>
+    </header>
+
+    <article class="notice">
+      <h1>Privacy notice</h1>
+      <p class="muted">Community Link is a prototype built for the Samartha hackathon. This notice describes what it does today.</p>
+
+      <h2>What location is used for</h2>
+      <ul>
+        <li>Location is <strong>off until you turn it on</strong>. You are asked first, and you can say no.</li>
+        <li>It is used only to decide whether you are inside a zone (for example, a hackathon hall). Zone posts are shown only while you are inside.</li>
+        <li>Your position is <strong>not</strong> shown to other users, and it is never included in posts. Other people can't see where you are.</li>
+        <li>GPS is an estimate. Indoors, or with poor signal, a reading can be wrong. The app shows you when a reading is too inaccurate to use, and it ignores readings that imply impossible movement, which may indicate spoofing.</li>
+      </ul>
+
+      <h2>What we keep, and for how long</h2>
+      <div class="box">
+        <ul>
+          <li><strong>Coordinates:</strong> used to make the zone decision and then discarded. They are not written to disk.</li>
+          <li><strong>Your last reading:</strong> kept in memory for up to 5 minutes, only to detect impossible jumps.</li>
+          <li><strong>Zone membership:</strong> kept in memory. It lapses after 10 minutes without a check-in, and a server restart clears it.</li>
+          <li><strong>Posts and replies:</strong> stored with the zone they were posted in, not with your position.</li>
+        </ul>
+      </div>
+
+      <h2>Leaving a zone and turning off location</h2>
+      <ul>
+        <li><strong>Leave zone</strong> hides zone posts straight away.</li>
+        <li><strong>Turn off location</strong> stops all checks and deletes your last reading and membership.</li>
+      </ul>
+
+      <h2>What "expiry" does and does not do</h2>
+      <ul>
+        <li>When a post reaches the end of its timeline, or its author closes it, it is removed from the feed and from the app's database.</li>
+        <li><strong>It does not remove</strong> screenshots, copies saved by other people, or copies that may remain in server logs or backups for a period. We cannot promise complete deletion. Please don't post anything you would not want kept.</li>
+      </ul>
+
+      <h2>Moderation and safety</h2>
+      <ul>
+        <li>Promotions and announcements can only be posted by organisers, and they carry an "Organiser" label.</li>
+        <li><strong>Not yet built:</strong> reporting and blocking users, a moderator review queue, and posting rate limits. These are planned, and this notice will be updated when they ship.</li>
+        <li>Community Link does <strong>not</strong> contact emergency services. In an emergency, call your local emergency number.</li>
+      </ul>
+
+      <h2>Minors</h2>
+      <p>If the app is used in schools or youth events, extra safeguards are required (such as parental consent and stricter moderation). This prototype does not yet provide those safeguards, so it should not be used with minors without them.</p>
+
+      <h2>Your choices</h2>
+      <p>You can turn location off, leave a zone, close your own posts, and block or report other users at any time.</p>
+    </article>
+  </body>
+</html>
