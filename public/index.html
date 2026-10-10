@@ -6,7 +6,7 @@
     <title>Community Link</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%230f766e'/%3E%3Ctext x='16' y='21' font-size='13' font-family='system-ui' font-weight='700' text-anchor='middle' fill='white'%3ECL%3C/text%3E%3C/svg%3E" />
     <link rel="stylesheet" href="/vendor/leaflet/leaflet.css" />
-    <link rel="stylesheet" href="/styles.css?v=12" />
+    <link rel="stylesheet" href="/styles.css?v=13" />
   </head>
   <body>
     <!-- ============ Login ============ -->
@@ -119,19 +119,20 @@
             <span id="status-pill" class="pill">Outside zone</span>
           </header>
 
-          <div id="feed" class="thread" aria-live="polite"></div>
+          <div class="templates-bar">
+            <div id="template-chips" class="chips" role="radiogroup" aria-label="Message type"></div>
+            <p id="template-desc" class="muted small"></p>
+          </div>
+
           <div id="feed-empty" class="empty-state hidden">
             <div class="empty-icon">💬</div>
             <strong id="feed-empty-title"></strong>
             <p id="feed-empty-text" class="muted small"></p>
           </div>
 
-          <form id="composer" class="composer">
-            <div class="composer-top">
-              <div id="template-chips" class="chips" role="radiogroup" aria-label="Message type"></div>
-            </div>
-            <p id="template-desc" class="muted small"></p>
+          <div id="feed" class="thread" aria-live="polite"></div>
 
+          <form id="composer" class="composer">
             <div id="channel-row" class="channel-row">
               <span class="muted small">To</span>
               <div id="channel-seg" class="seg" role="radiogroup"></div>
@@ -264,6 +265,6 @@
       });
     </script>
     <script src="/vendor/leaflet/leaflet.js"></script>
-    <script src="/app.js?v=12"></script>
+    <script src="/app.js?v=13"></script>
   </body>
 </html>

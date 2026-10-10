@@ -386,7 +386,7 @@
 
   // ---- Map (OpenStreetMap via Leaflet; no API key) ------------------------
 
-  const mapState = { map: null, zoneLayers: [], me: null, meAccuracy: null, lastZoneKey: '', fitted: false };
+  const mapState = { map: null, zoneLayers: [], eventLayers: [], me: null, meAccuracy: null, lastZoneKey: '', fitted: false };
 
   function zoneStyle(isMine) {
     return {
@@ -434,6 +434,33 @@
     return bounds;
   }
 
+  // Events in the current zone are pinned at the zone's centre. The pin shows how many there are;
+  // clicking it lists each event with its entry requirement.
+  function drawEventPins() {
+    for (const layer of mapState.eventLayers) layer.remove();
+    mapState.eventLayers = [];
+    if (!state.zone || !state.events.length) return;
+    const zone = state.zones.find((z) => z.id === state.zone.zoneId);
+    if (!zone) return;
+
+    const count = state.events.length;
+    const icon = L.divIcon({
+      className: 'event-pin-wrap',
+      html: `<div class="event-pin">${Number(count)}</div>`,
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
+    });
+    const marker = L.marker([zone.center.lat, zone.center.lng], { icon, title: `${count} events here` });
+    marker.bindPopup(() => el('div', { class: 'pin-pop' },
+      el('strong', { text: `${count} ${count === 1 ? 'event' : 'events'} in ${zone.name}` }),
+      ...state.events.map((e) => el('div', { class: 'pin-row' },
+        el('span', { class: `badge ${e.requiresAuth ? 'auth' : 'open'}`, text: e.requiresAuth ? 'Sign-in' : 'Open' }),
+        el('span', { text: e.title }),
+        e.demo ? el('span', { class: 'demo-tag', text: 'Demo' }) : null))));
+    marker.addTo(mapState.map);
+    mapState.eventLayers.push(marker);
+  }
+
   function updateMap() {
     if (!ensureMap()) return;
     // Redraw zone outlines only when the zone set or membership changes.
@@ -475,6 +502,7 @@
         ? 'Your zone is outlined in green. Only you can see your position.'
         : 'Zones are outlined in purple. Turn on location to see where you are.';
     }
+    drawEventPins();
   }
 
   async function loadZones() {
@@ -554,6 +582,7 @@
       state.zone = data.zone;
       renderEvents();
       refreshComposerAccess();
+      updateMap();
       $('#dash-sub').textContent = state.zone
         ? `Happening in ${state.zone.zoneName}. Only events in your zone are shown.`
         : 'Turn on location and enter a zone to see its events.';
