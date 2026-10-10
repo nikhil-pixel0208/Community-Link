@@ -4,15 +4,27 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Community Link</title>
-    <link rel="stylesheet" href="/styles.css?v=11" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%230f766e'/%3E%3Ctext x='16' y='21' font-size='13' font-family='system-ui' font-weight='700' text-anchor='middle' fill='white'%3ECL%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/vendor/leaflet/leaflet.css" />
+    <link rel="stylesheet" href="/styles.css?v=12" />
   </head>
   <body>
-    <!-- Login -->
+    <!-- ============ Login ============ -->
     <section id="login-view" class="login-wrap hidden">
-      <div class="login-card">
-        <div class="logo">CL</div>
+      <div class="login-hero">
+        <div class="brand-mark big">CL</div>
         <h1>Community Link</h1>
-        <p class="muted">Talk to your zone. Messages clear themselves once they're handled.</p>
+        <p class="lede">Talk to people nearby, in the zone you are actually in. Messages clear themselves once they're handled.</p>
+        <ul class="hero-points">
+          <li><span class="pt-icon">📍</span> Zones turn on only when you allow location.</li>
+          <li><span class="pt-icon">⏱</span> Every message has a timeline and is removed when it ends.</li>
+          <li><span class="pt-icon">🛡</span> Organisers can reach people directly, or post to the group.</li>
+        </ul>
+      </div>
+
+      <div class="login-card">
+        <h2>Sign in</h2>
+        <p class="muted small">No password for this demo. Pick a name and a role.</p>
 
         <form id="login-form" class="stack">
           <label class="field">
@@ -22,7 +34,7 @@
 
           <div class="field">
             <span>I am a</span>
-            <div class="seg" role="radiogroup">
+            <div class="seg wide" role="radiogroup">
               <label class="seg-opt">
                 <input type="radio" name="role" value="participant" checked />
                 <span>Participant</span>
@@ -39,27 +51,31 @@
             <input id="login-code" type="password" autocomplete="off" />
           </label>
 
-          <button type="submit" class="btn primary block">Enter</button>
+          <button type="submit" class="btn primary block lg">Continue</button>
           <p id="login-status" class="muted small"></p>
           <p id="login-error" class="error" role="alert"></p>
         </form>
       </div>
     </section>
 
-    <!-- App -->
+    <!-- ============ App ============ -->
     <div id="app-view" class="app hidden">
       <header class="topbar">
-        <div class="brand"><span class="logo small">CL</span> Community Link</div>
+        <div class="brand"><span class="brand-mark">CL</span><span>Community Link</span></div>
         <div class="me">
           <span id="me-avatar" class="avatar"></span>
-          <span id="me-text" class="me-text"></span>
+          <div class="me-text">
+            <strong id="me-name"></strong>
+            <span id="me-role" class="muted small"></span>
+          </div>
           <button id="logout" class="btn ghost small">Log out</button>
         </div>
       </header>
 
       <div class="layout">
-        <aside class="rail">
-          <section class="loc-card" aria-live="polite">
+        <!-- Left: location and channels -->
+        <aside class="sidebar">
+          <section class="card loc-card" aria-live="polite">
             <div class="loc-head">
               <span id="loc-dot" class="dot"></span>
               <strong id="loc-title">Location off</strong>
@@ -70,12 +86,17 @@
               <button id="loc-leave" type="button" class="btn ghost small hidden">Leave zone</button>
               <button id="loc-off" type="button" class="btn ghost small hidden">Turn off &amp; delete</button>
             </div>
-            <a href="/privacy.html" class="small link-subtle">Privacy notice</a>
+            <a href="/privacy.html" class="small link">Privacy notice</a>
           </section>
 
-          <details class="demo">
+          <nav class="card rooms-card" aria-label="Filter messages">
+            <p class="card-label">Messages</p>
+            <div id="rooms" class="rooms"></div>
+          </nav>
+
+          <details class="card demo">
             <summary>Demo scenarios</summary>
-            <p class="muted small">Runs real check-ins through the server's zone rules.</p>
+            <p class="muted small">These send real check-ins through the server's zone rules.</p>
             <div class="demo-grid">
               <button type="button" class="btn ghost small" data-scenario="enter">Walk into Main Hall</button>
               <button type="button" class="btn ghost small" data-scenario="walkOut">Walk out</button>
@@ -86,111 +107,48 @@
             </div>
             <p id="demo-status" class="muted small"></p>
           </details>
-
-          <p class="rail-title">Show</p>
-          <nav id="rail" class="rail-list"></nav>
-          <div class="rail-note muted small">
-            Posts clear when they're closed or when their timeline ends.
-          </div>
         </aside>
 
-        <main class="main">
-          <section class="dash" aria-labelledby="dash-title">
-            <div class="dash-head">
-              <div>
-                <h2 id="dash-title">Zone dashboard</h2>
-                <p id="dash-sub" class="muted small">Turn on location and enter a zone to see its events.</p>
-              </div>
-              <span id="dash-count" class="zone-pill">Not in a zone</span>
+        <!-- Centre: conversation -->
+        <main class="chat">
+          <header class="chat-head">
+            <div>
+              <h2 id="zone-title">No zone yet</h2>
+              <p id="zone-sub" class="muted small">Turn on location to join your zone's conversation.</p>
             </div>
+            <span id="status-pill" class="pill">Outside zone</span>
+          </header>
 
-            <div class="dash-grid">
-              <div class="map-wrap">
-                <div id="map" class="map"></div>
-                <p id="map-note" class="muted small"></p>
-              </div>
-
-              <div class="events-wrap">
-                <div class="filter-row" role="tablist" aria-label="Filter events">
-                  <button type="button" class="chip" data-ef="all">All</button>
-                  <button type="button" class="chip" data-ef="open">Open entry · no sign-in</button>
-                  <button type="button" class="chip" data-ef="auth">Sign-in required</button>
-                </div>
-
-                <div id="event-list" class="event-list"></div>
-                <p id="event-empty" class="muted small hidden"></p>
-
-                <form id="event-form" class="event-form hidden">
-                  <p class="event-form-title">Add an event to this zone</p>
-                  <label class="field"><span>Title</span>
-                    <input id="ev-title" name="evTitle" maxlength="120" required />
-                  </label>
-                  <div class="details-grid">
-                    <label class="field"><span>Venue</span>
-                      <input name="evVenue" maxlength="120" />
-                    </label>
-                    <label class="field"><span>Entry</span>
-                      <select name="evEntry">
-                        <option value="open">Open entry · no sign-in</option>
-                        <option value="registration">Registration required</option>
-                        <option value="id_required">College or photo ID required</option>
-                        <option value="ticket">Ticket required</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div class="details-grid">
-                    <label class="field"><span>Starts</span>
-                      <input name="evStarts" type="datetime-local" required />
-                    </label>
-                    <label class="field"><span>Ends</span>
-                      <input name="evEnds" type="datetime-local" required />
-                    </label>
-                  </div>
-                  <div class="details-grid">
-                    <label class="inline-check"><input name="evFree" id="ev-free" type="checkbox" checked /> Free</label>
-                    <label id="ev-price-row" class="field hidden"><span>Price (₹)</span>
-                      <input name="evPrice" type="number" min="0" step="1" />
-                    </label>
-                  </div>
-                  <label class="field"><span>Entry note (optional)</span>
-                    <input name="evNote" maxlength="200" placeholder="e.g. Bring your college ID" />
-                  </label>
-                  <button type="submit" class="btn primary small">Add event</button>
-                  <p id="event-error" class="error" role="alert"></p>
-                </form>
-              </div>
-            </div>
-          </section>
-
-          <div id="feed" class="feed"></div>
-          <p id="feed-empty" class="empty hidden">
-            <strong>Nothing here yet.</strong><br />
-            Send a message below to start a conversation.
-          </p>
+          <div id="feed" class="thread" aria-live="polite"></div>
+          <div id="feed-empty" class="empty-state hidden">
+            <div class="empty-icon">💬</div>
+            <strong id="feed-empty-title"></strong>
+            <p id="feed-empty-text" class="muted small"></p>
+          </div>
 
           <form id="composer" class="composer">
             <div class="composer-top">
               <div id="template-chips" class="chips" role="radiogroup" aria-label="Message type"></div>
-              <span id="composer-zone" class="zone-pill">Not in a zone</span>
             </div>
             <p id="template-desc" class="muted small"></p>
 
             <div id="channel-row" class="channel-row">
-              <span class="muted small">Send to</span>
-              <div id="channel-seg" class="seg small-seg" role="radiogroup"></div>
+              <span class="muted small">To</span>
+              <div id="channel-seg" class="seg" role="radiogroup"></div>
               <span id="channel-hint" class="muted small"></span>
             </div>
 
-            <div class="input-row">
-              <textarea id="msg-input" rows="1" maxlength="2000" placeholder="Write a message…"></textarea>
-              <button id="composer-submit" type="submit" class="btn primary">Send</button>
+            <div class="bubble-input">
+              <input id="msg-title" maxlength="120" placeholder="Title (optional)" aria-label="Title (optional)" />
+              <textarea id="msg-input" rows="1" maxlength="2000" placeholder="Write a message…" aria-label="Message"></textarea>
+              <button id="composer-submit" type="submit" class="btn primary send">Send</button>
             </div>
 
             <details id="details" class="details">
-              <summary>Add location or timeline</summary>
+              <summary>Location and timeline</summary>
               <div class="details-grid">
                 <label id="location-row" class="field">
-                  <span>Location</span>
+                  <span>Where (optional)</span>
                   <input id="msg-location" maxlength="120" placeholder="e.g. Hall B, registration desk" />
                 </label>
                 <label class="field">
@@ -198,10 +156,81 @@
                   <input id="msg-ttl" type="number" min="5" step="5" />
                 </label>
               </div>
+              <p class="muted small">Use a place name, not coordinates. Messages are removed when they're closed or when their timeline ends.</p>
             </details>
             <p id="composer-error" class="error" role="alert"></p>
+            <p id="composer-zone" class="composer-foot muted small"></p>
           </form>
         </main>
+
+        <!-- Right: map and events -->
+        <aside class="panel">
+          <section class="card map-card">
+            <div class="card-head">
+              <h3>Your zone on the map</h3>
+            </div>
+            <div id="map" class="map"></div>
+            <p id="map-note" class="muted small"></p>
+          </section>
+
+          <section class="card events-card">
+            <div class="card-head">
+              <h3>Events here</h3>
+              <span id="dash-count" class="pill small-pill">Not in a zone</span>
+            </div>
+            <p id="dash-sub" class="muted small">Turn on location and enter a zone to see its events.</p>
+
+            <div class="filter-row" aria-label="Filter events">
+              <button type="button" class="chip" data-ef="all">All</button>
+              <button type="button" class="chip" data-ef="open">No sign-in</button>
+              <button type="button" class="chip" data-ef="auth">Sign-in required</button>
+            </div>
+
+            <div id="event-list" class="event-list"></div>
+            <p id="event-empty" class="muted small hidden"></p>
+
+            <details id="event-admin" class="details hidden">
+              <summary>Add an event to this zone (organisers)</summary>
+              <form id="event-form" class="event-form">
+                <label class="field"><span>Title</span>
+                  <input id="ev-title" name="evTitle" maxlength="120" required />
+                </label>
+                <div class="details-grid">
+                  <label class="field"><span>Venue</span>
+                    <input name="evVenue" maxlength="120" />
+                  </label>
+                  <label class="field"><span>Entry</span>
+                    <select name="evEntry">
+                      <option value="open">Open entry · no sign-in</option>
+                      <option value="registration">Registration required</option>
+                      <option value="id_required">College or photo ID required</option>
+                      <option value="ticket">Ticket required</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="details-grid">
+                  <label class="field"><span>Starts</span>
+                    <input name="evStarts" type="datetime-local" required />
+                  </label>
+                  <label class="field"><span>Ends</span>
+                    <input name="evEnds" type="datetime-local" required />
+                  </label>
+                </div>
+                <div class="details-grid">
+                  <label class="inline-check"><input name="evFree" id="ev-free" type="checkbox" checked /> Free</label>
+                  <label id="ev-price-row" class="field hidden"><span>Price (₹)</span>
+                    <input name="evPrice" type="number" min="0" step="1" />
+                  </label>
+                </div>
+                <label class="field"><span>Entry note (optional)</span>
+                  <input name="evNote" maxlength="200" placeholder="e.g. Bring your college ID" />
+                </label>
+                <button type="submit" class="btn primary small">Add event</button>
+                <p id="event-error" class="error" role="alert"></p>
+              </form>
+            </details>
+          </section>
+        </aside>
       </div>
     </div>
 
@@ -211,7 +240,7 @@
         <h2 id="consent-title">Use your location for zones?</h2>
         <ul class="modal-list">
           <li>Used only to tell whether you're inside a zone, such as the Main Hall.</li>
-          <li>Other people never see where you are, and positions never appear in posts.</li>
+          <li>Other people never see where you are, and positions never appear in messages.</li>
           <li>Coordinates aren't stored. Your last reading lasts up to 5 minutes, and zone membership lapses after 10.</li>
           <li>GPS is approximate. You can leave a zone or turn location off at any time, which deletes what we hold.</li>
         </ul>
@@ -234,6 +263,7 @@
         if (box) box.textContent = "Script error: " + e.message;
       });
     </script>
-    <script src="/app.js?v=11"></script>
+    <script src="/vendor/leaflet/leaflet.js"></script>
+    <script src="/app.js?v=12"></script>
   </body>
 </html>

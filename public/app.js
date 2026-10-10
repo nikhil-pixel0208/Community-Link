@@ -5,6 +5,7 @@
   const LOCATION_KEY = 'communityLinkLocation';
   const POLL_MS = 4000;
   const CHECK_IN_MS = 15000;     // server check-ins at most this often; the map itself updates live
+  const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
   const state = {
     token: localStorage.getItem(TOKEN_KEY),
@@ -20,8 +21,8 @@
     drafts: {},
     signature: '',
     pollTimer: null,
-    mapsKey: '',
     me: null,                    // this user's own live position (kept in the browser only)
+    forceScroll: true,
     loc: {
       // 'off' | 'granted' | 'denied' | 'unsupported'
       permission: localStorage.getItem(LOCATION_KEY) === 'on' ? 'granted' : 'off',
@@ -33,6 +34,7 @@
   };
 
   const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
   function el(tag, attrs = {}, ...children) {
     const node = document.createElement(tag);
@@ -89,7 +91,7 @@
   function avatar(name, extraClass = '') {
     return el('span', {
       class: `avatar ${extraClass}`.trim(),
-      style: `background:hsl(${hueFor(name)} 55% 45%)`,
+      style: `background:hsl(${hueFor(name)} 50% 42%)`,
       text: initials(name),
       title: name,
     });
@@ -114,14 +116,25 @@
     return `${Math.floor(s / 86400)}d ago`;
   }
 
+  const CLOCK = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' });
+  const DAY_KEY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const DAY_LABEL = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'short' });
   const WHEN = new Intl.DateTimeFormat('en-IN', {
-    timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short',
-    hour: 'numeric', minute: '2-digit',
+    timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
   });
   const TIME_ONLY = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' });
 
   function formatRange(startsAt, endsAt) {
     return `${WHEN.format(startsAt)} – ${TIME_ONLY.format(endsAt)}`;
+  }
+
+  function dayLabel(ts) {
+    const key = DAY_KEY.format(ts);
+    const today = DAY_KEY.format(Date.now());
+    const yesterday = DAY_KEY.format(Date.now() - 86400000);
+    if (key === today) return 'Today';
+    if (key === yesterday) return 'Yesterday';
+    return DAY_LABEL.format(ts);
   }
 
   function toast(text) {
@@ -130,11 +143,6 @@
     t.classList.remove('hidden');
     clearTimeout(toast.timer);
     toast.timer = setTimeout(() => t.classList.add('hidden'), 3000);
-  }
-
-  function status(text) {
-    const n = document.getElementById('login-status');
-    if (n) n.textContent = text;
   }
 
   function templateById(id) {
@@ -157,10 +165,12 @@
   function showApp() {
     $('#login-view').classList.add('hidden');
     $('#app-view').classList.remove('hidden');
-    $('#me-avatar').textContent = initials(state.user.name);
-    $('#me-avatar').style.background = `hsl(${hueFor(state.user.name)} 55% 45%)`;
-    $('#me-text').textContent = `${state.user.name} · ${state.user.role === 'organiser' ? 'Organiser' : 'Participant'}`;
-    $('#event-form').classList.toggle('hidden', state.user.role !== 'organiser');
+    const av = $('#me-avatar');
+    av.textContent = initials(state.user.name);
+    av.style.background = `hsl(${hueFor(state.user.name)} 50% 42%)`;
+    $('#me-name').textContent = state.user.name;
+    $('#me-role').textContent = state.user.role === 'organiser' ? 'Organiser' : 'Participant';
+    $('#event-admin').classList.toggle('hidden', state.user.role !== 'organiser');
   }
 
   // ---- Login --------------------------------------------------------------
@@ -173,12 +183,12 @@
     $('#organiser-code-row').classList.toggle('hidden', selectedRole() !== 'organiser');
   }
 
-  document.querySelectorAll('input[name="role"]').forEach((r) => r.addEventListener('change', syncRoleFields));
+  $$('input[name="role"]').forEach((r) => r.addEventListener('change', syncRoleFields));
 
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     $('#login-error').textContent = '';
-    status('Signing in…');
+    setLoginStatus('Signing in…');
     try {
       const data = await api('POST', '/api/login', {
         name: $('#login-name').value.trim(),
@@ -189,22 +199,31 @@
       localStorage.setItem(TOKEN_KEY, data.token);
       await boot();
     } catch (err) {
-      status('');
+      setLoginStatus('');
       $('#login-error').textContent = err.message;
     }
   });
+
+  function setLoginStatus(text) {
+    const n = document.getElementById('login-status');
+    if (n) n.textContent = text;
+  }
 
   $('#logout').addEventListener('click', async () => {
     try {
       await api('POST', '/api/location/forget');
     } catch (_) { /* logging out regardless */ }
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(LOCATION_KEY);
     state.token = null;
     state.user = null;
     state.drafts = {};
     state.signature = '';
     state.zone = null;
     state.me = null;
+    state.posts = [];
+    state.events = [];
+    state.forceScroll = true;
     showLogin();
   });
 
@@ -294,9 +313,17 @@
     const tone = result.state === 'entered' || result.state === 'member' ? 'good'
       : result.state === 'rejected' || result.state === 'uncertain' || result.state === 'pending' ? 'warn' : '';
     setLocationMessage(result.message, tone);
+    zoneChanged();
+  }
+
+  // Called whenever membership may have changed.
+  function zoneChanged() {
+    state.forceScroll = true;
     refreshComposerAccess();
+    renderLocation();
     loadPosts(true);
     loadEvents();
+    updateMap();
   }
 
   $('#loc-on').addEventListener('click', openConsent);
@@ -310,9 +337,7 @@
     } catch (_) { /* nothing to forget */ }
     state.zone = null;
     setLocationMessage('Location is off. Everything about your location has been deleted.');
-    refreshComposerAccess();
-    loadPosts(true);
-    loadEvents();
+    zoneChanged();
   });
 
   $('#loc-leave').addEventListener('click', async () => {
@@ -320,15 +345,12 @@
       await api('POST', '/api/location/leave');
     } catch (_) { /* ignore */ }
     state.zone = null;
-    setLocationMessage('You left the zone. Zone posts are hidden.');
-    refreshComposerAccess();
-    loadPosts(true);
-    loadEvents();
+    setLocationMessage('You left the zone. Zone messages are hidden.');
+    zoneChanged();
   });
 
   function renderLocation() {
     const loc = state.loc;
-    const dot = $('#loc-dot');
     let title;
     let text = loc.message;
     let dotClass = 'dot';
@@ -351,7 +373,7 @@
       dotClass += ' idle';
     }
     if (loc.tone === 'warn') dotClass += ' warn';
-    dot.className = dotClass;
+    $('#loc-dot').className = dotClass;
     $('#loc-title').textContent = title;
     $('#loc-text').textContent = text;
 
@@ -362,106 +384,97 @@
     $('#loc-leave').classList.toggle('hidden', !state.zone);
   }
 
-  // ---- Google Maps --------------------------------------------------------
+  // ---- Map (OpenStreetMap via Leaflet; no API key) ------------------------
 
-  const mapState = { map: null, zoneShapes: [], me: null, loader: null, ready: false, lastZoneKey: '' };
-
-  function loadMapsApi() {
-    if (window.google && window.google.maps) return Promise.resolve();
-    if (!state.mapsKey) return Promise.reject(new Error('Map key not set'));
-    if (!mapState.loader) {
-      mapState.loader = new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(state.mapsKey)}`;
-        s.async = true;
-        s.onload = resolve;
-        s.onerror = () => reject(new Error('Google Maps could not load'));
-        document.head.append(s);
-      });
-    }
-    return mapState.loader;
-  }
+  const mapState = { map: null, zoneLayers: [], me: null, meAccuracy: null, lastZoneKey: '', fitted: false };
 
   function zoneStyle(isMine) {
     return {
-      strokeColor: isMine ? '#17915a' : '#3b6cf6',
-      strokeOpacity: 0.9,
-      strokeWeight: isMine ? 3 : 2,
-      fillColor: isMine ? '#17915a' : '#3b6cf6',
-      fillOpacity: isMine ? 0.18 : 0.08,
+      color: isMine ? '#0f766e' : '#4f46e5',
+      weight: isMine ? 3 : 2,
+      opacity: 0.9,
+      fillColor: isMine ? '#0f766e' : '#4f46e5',
+      fillOpacity: isMine ? 0.16 : 0.06,
+      interactive: false,
     };
   }
 
-  function drawZones(maps) {
-    for (const shape of mapState.zoneShapes) shape.setMap(null);
-    mapState.zoneShapes = [];
+  function ensureMap() {
+    if (mapState.map) return true;
+    if ($('#app-view').classList.contains('hidden')) return false;
+    if (!window.L) {
+      $('#map-note').textContent = 'The map could not load. The rest of the app still works.';
+      return false;
+    }
+    const start = state.zones.length ? state.zones[0].center : { lat: 16.9891, lng: 82.2475 };
+    mapState.map = L.map('map', { zoomControl: true, attributionControl: true }).setView([start.lat, start.lng], 16);
+    L.tileLayer(TILE_URL, {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(mapState.map);
+    setTimeout(() => mapState.map && mapState.map.invalidateSize(), 0);
+    return true;
+  }
+
+  function drawZones() {
+    for (const layer of mapState.zoneLayers) layer.remove();
+    mapState.zoneLayers = [];
     const mine = state.zone ? state.zone.zoneId : null;
-    const bounds = new maps.LatLngBounds();
+    let bounds = null;
     for (const z of state.zones) {
-      const style = { ...zoneStyle(z.id === mine), map: mapState.map, clickable: false };
-      if (z.kind === 'circle') {
-        const shape = new maps.Circle({ ...style, center: z.center, radius: z.radiusM });
-        mapState.zoneShapes.push(shape);
-        bounds.union(shape.getBounds());
-      } else {
-        const shape = new maps.Polygon({ ...style, paths: z.points });
-        mapState.zoneShapes.push(shape);
-        for (const p of z.points) bounds.extend(p);
-      }
+      const style = zoneStyle(z.id === mine);
+      const layer = z.kind === 'circle'
+        ? L.circle([z.center.lat, z.center.lng], { ...style, radius: z.radiusM })
+        : L.polygon(z.points.map((p) => [p.lat, p.lng]), style);
+      layer.addTo(mapState.map);
+      mapState.zoneLayers.push(layer);
+      const b = layer.getBounds();
+      bounds = bounds ? bounds.extend(b) : b;
     }
     return bounds;
   }
 
-  async function updateMap() {
-    const wrap = $('#map');
-    if (!state.mapsKey) {
-      $('#map-note').textContent = 'Map is off: the server has no Google Maps key (GOOGLE_MAPS_API_KEY).';
-      return;
-    }
-    try {
-      await loadMapsApi();
-    } catch (err) {
-      $('#map-note').textContent = `${err.message}. Check the key and its allowed referrers.`;
-      return;
-    }
-    const maps = window.google.maps;
-    if (!mapState.map) {
-      mapState.map = new maps.Map(wrap, {
-        center: state.zones.length ? state.zones[0].center : { lat: 0, lng: 0 },
-        zoom: 17,
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: false,
-      });
-    }
+  function updateMap() {
+    if (!ensureMap()) return;
     // Redraw zone outlines only when the zone set or membership changes.
     const key = `${state.zones.map((z) => z.id).join(',')}|${state.zone ? state.zone.zoneId : ''}`;
     if (key !== mapState.lastZoneKey) {
       mapState.lastZoneKey = key;
-      const bounds = drawZones(maps);
-      if (!state.me && !bounds.isEmpty()) mapState.map.fitBounds(bounds, 40);
-    }
-    // Only this user's own marker is drawn. Other people's positions are never shown.
-    if (state.me) {
-      const pos = { lat: state.me.lat, lng: state.me.lng };
-      if (!mapState.me) {
-        mapState.me = new maps.Marker({
-          map: mapState.map,
-          title: 'You',
-          icon: { path: maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#3b6cf6', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
-        });
+      const bounds = drawZones();
+      if (bounds && !state.me && !mapState.fitted) {
+        mapState.map.fitBounds(bounds.pad(0.3));
+        mapState.fitted = true;
       }
-      mapState.me.setMap(mapState.map);
-      mapState.me.setPosition(pos);
-      mapState.map.panTo(pos);
-      $('#map-note').textContent = `Your position (blue dot) is shown only to you. Accuracy about ${Math.round(state.me.accuracy)} m.`;
-    } else {
-      if (mapState.me) mapState.me.setMap(null);
-      $('#map-note').textContent = state.zone
-        ? `Your zone is outlined in green. Only you can see your position.`
-        : 'Zones are outlined in blue. Turn on location to see where you are.';
     }
-    wrap.classList.remove('hidden');
+    // Only this user's own position is drawn. Other people's positions are never shown.
+    if (state.me) {
+      const ll = [state.me.lat, state.me.lng];
+      if (!mapState.me) {
+        mapState.me = L.circleMarker(ll, {
+          radius: 8, color: '#ffffff', weight: 3, fillColor: '#4f46e5', fillOpacity: 1, interactive: false,
+        }).addTo(mapState.map);
+        mapState.meAccuracy = L.circle(ll, {
+          radius: Math.max(5, state.me.accuracy || 10), color: '#4f46e5', weight: 1, fillOpacity: 0.08, interactive: false,
+        }).addTo(mapState.map);
+        mapState.map.setView(ll, 17);
+        mapState.fitted = true;
+      }
+      mapState.me.setLatLng(ll);
+      mapState.meAccuracy.setLatLng(ll);
+      mapState.meAccuracy.setRadius(Math.max(5, state.me.accuracy || 10));
+      if (!mapState.map.getBounds().contains(ll)) mapState.map.panTo(ll);
+      $('#map-note').textContent = `Only you can see your position (blue dot). Accuracy about ${Math.round(state.me.accuracy)} m.`;
+    } else {
+      if (mapState.me) {
+        mapState.me.remove();
+        mapState.meAccuracy.remove();
+        mapState.me = null;
+        mapState.meAccuracy = null;
+      }
+      $('#map-note').textContent = state.zone
+        ? 'Your zone is outlined in green. Only you can see your position.'
+        : 'Zones are outlined in purple. Turn on location to see where you are.';
+    }
   }
 
   async function loadZones() {
@@ -471,7 +484,7 @@
     } catch (_) { /* map simply stays empty */ }
   }
 
-  // ---- Zone dashboard: events ---------------------------------------------
+  // ---- Zone events --------------------------------------------------------
 
   function eventMatchesFilter(e) {
     if (state.eventFilter === 'open') return !e.requiresAuth;
@@ -490,7 +503,7 @@
       ? `${openCount} open · ${authCount} sign-in`
       : 'Not in a zone';
 
-    document.querySelectorAll('[data-ef]').forEach((b) => {
+    $$('[data-ef]').forEach((b) => {
       b.classList.toggle('on', b.dataset.ef === state.eventFilter);
     });
 
@@ -518,7 +531,7 @@
       el('p', { class: 'small', text: `${e.entryLabel}${e.entryNote ? ` — ${e.entryNote}` : ''}` }),
     );
     if (state.user && state.user.role === 'organiser' && !e.demo) {
-      const btn = el('button', { type: 'button', class: 'btn ghost small', text: 'Remove' });
+      const btn = el('button', { type: 'button', class: 'btn ghost small danger', text: 'Remove' });
       btn.addEventListener('click', async () => {
         if (!confirm(`Remove "${e.title}"?`)) return;
         try {
@@ -540,14 +553,14 @@
       state.events = data.events;
       state.zone = data.zone;
       renderEvents();
-      updateMap();
+      refreshComposerAccess();
       $('#dash-sub').textContent = state.zone
         ? `Happening in ${state.zone.zoneName}. Only events in your zone are shown.`
         : 'Turn on location and enter a zone to see its events.';
     } catch (_) { /* keep the last list */ }
   }
 
-  document.querySelectorAll('[data-ef]').forEach((b) => {
+  $$('[data-ef]').forEach((b) => {
     b.addEventListener('click', () => {
       state.eventFilter = b.dataset.ef;
       renderEvents();
@@ -590,18 +603,17 @@
     wrap.innerHTML = '';
     for (const tpl of state.templates) {
       const allowed = canUseTemplate(tpl);
-      const chip = el('button', {
+      const on = state.composer.template === tpl.id;
+      wrap.append(el('button', {
         type: 'button',
-        class: 'chip',
+        class: `chip${on ? ' on' : ''}`,
         role: 'radio',
-        'aria-checked': String(state.composer.template === tpl.id),
+        'aria-checked': String(on),
         disabled: !allowed,
         title: allowed ? tpl.description : 'Only organisers can post this',
         text: tpl.label + (tpl.organiserOnly ? ' · organisers' : ''),
         onclick: () => selectTemplate(tpl.id),
-      });
-      if (state.composer.template === tpl.id) chip.classList.add('on');
-      wrap.append(chip);
+      }));
     }
   }
 
@@ -648,13 +660,22 @@
   // Posting needs a zone: when outside one, the composer is disabled and explains why.
   function refreshComposerAccess() {
     const inZone = !!state.zone;
-    $('#msg-input').disabled = !inZone;
-    $('#msg-input').placeholder = inZone
-      ? `Message ${state.zone.zoneName}…`
-      : 'Enter a zone to post. Turn on location in the left panel.';
+    const input = $('#msg-input');
+    input.disabled = !inZone;
+    $('#msg-title').disabled = !inZone;
+    input.placeholder = inZone ? `Message ${state.zone.zoneName}…` : 'Enter a zone to start a conversation';
     $('#composer-submit').disabled = !inZone;
-    $('#composer-zone').textContent = inZone ? `Posting in ${state.zone.zoneName}` : 'Not in a zone';
-    $('#composer-zone').classList.toggle('on', inZone);
+
+    $('#zone-title').textContent = inZone ? state.zone.zoneName : 'No zone yet';
+    $('#zone-sub').textContent = inZone
+      ? 'Messages here are seen by people in this zone. They clear when closed or when their timeline ends.'
+      : 'Turn on location to join your zone\u2019s conversation.';
+    const pill = $('#status-pill');
+    pill.textContent = inZone ? 'Inside zone' : 'Outside zone';
+    pill.classList.toggle('on', inZone);
+    $('#composer-zone').textContent = inZone
+      ? `Posting in ${state.zone.zoneName}`
+      : 'Only people inside a zone can post. Turn on location to join.';
   }
 
   function selectTemplate(id) {
@@ -672,20 +693,23 @@
     $('#composer-error').textContent = '';
     const input = $('#msg-input');
     const tpl = templateById(state.composer.template);
-    if (!tpl || !state.zone) return;
+    if (!tpl || !state.zone || !input.value.trim()) return;
     const payload = {
       template: tpl.id,
       body: input.value,
       channel: state.composer.channel,
     };
+    if ($('#msg-title').value.trim()) payload.title = $('#msg-title').value.trim();
     if (tpl.usesLocation && $('#msg-location').value.trim()) payload.location = $('#msg-location').value;
     if ($('#msg-ttl').value) payload.ttlMinutes = $('#msg-ttl').value;
     try {
       await api('POST', '/api/posts', payload);
       input.value = '';
       input.style.height = '';
+      $('#msg-title').value = '';
       $('#msg-location').value = '';
       $('#msg-ttl').value = '';
+      state.forceScroll = true;
       toast('Sent');
       await loadPosts(true);
     } catch (err) {
@@ -704,20 +728,29 @@
       $('#composer').requestSubmit();
     }
   });
+  $('#msg-title').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      $('#msg-input').focus();
+    }
+  });
 
   // ---- Feed ---------------------------------------------------------------
 
-  function renderRail() {
-    const rail = $('#rail');
-    rail.innerHTML = '';
+  function renderRooms() {
+    const rooms = $('#rooms');
+    rooms.innerHTML = '';
     const count = (id) => (id ? state.posts.filter((p) => p.template === id).length : state.posts.length);
-    const items = [{ id: '', label: 'Everything' }, ...state.templates.map((t) => ({ id: t.id, label: t.label }))];
+    const items = [{ id: '', label: 'All messages' }, ...state.templates.map((t) => ({ id: t.id, label: t.label }))];
     for (const it of items) {
-      rail.append(el('button', {
+      const on = state.filter === it.id;
+      rooms.append(el('button', {
         type: 'button',
-        class: `rail-item${state.filter === it.id ? ' on' : ''}`,
+        class: `room${on ? ' on' : ''}`,
+        'aria-pressed': String(on),
         onclick: () => {
           state.filter = it.id;
+          state.forceScroll = true;
           renderFeed();
         },
       }, el('span', { text: it.label }), el('span', { class: 'count', text: String(count(it.id)) })));
@@ -726,41 +759,52 @@
 
   function renderReplies(post) {
     if (!post.responses.length) return null;
-    return el('div', { class: 'thread' },
-      ...post.responses.map((r) => el('div', { class: `reply${r.authorName === state.user.name ? ' mine' : ''}` },
+    return el('div', { class: 'replies' },
+      ...post.responses.map((r) => el('div', { class: 'reply' },
         avatar(r.authorName, 'tiny'),
         el('div', { class: 'reply-body' },
           el('div', { class: 'reply-meta' },
             el('strong', { text: r.authorName }),
-            el('span', { class: 'muted', text: ` · ${timeAgo(r.createdAt)}` })),
+            el('span', { text: ` · ${timeAgo(r.createdAt)}` })),
           el('div', { class: 'reply-text', text: r.text })))));
   }
 
-  function renderPost(post) {
-    const tags = [
-      el('span', { class: 'tag', text: post.templateLabel }),
-      post.channel === 'organisers' ? el('span', { class: 'tag private', text: 'Organisers only' }) : null,
-      post.author.role === 'organiser' ? el('span', { class: 'tag org', text: 'Organiser' }) : null,
-    ];
+  // The server fills in a title from the first line when none is given. Only show a title that
+  // adds something, so the first line isn't repeated inside the bubble.
+  function shownTitle(post) {
+    const firstLine = String(post.body || '').split('\n')[0].trim();
+    const t = String(post.title || '').trim();
+    return t && t !== firstLine && t !== (firstLine.length > 60 ? `${firstLine.slice(0, 57).trimEnd()}…` : firstLine) ? t : '';
+  }
 
-    const card = el('article', { class: 'msg', 'data-id': post.id },
-      avatar(post.author.name),
-      el('div', { class: 'msg-main' },
-        el('div', { class: 'msg-meta' },
-          el('strong', { text: post.isMine ? `${post.author.name} (you)` : post.author.name }),
-          el('span', { class: 'muted', text: ` · ${timeAgo(post.createdAt)}` }),
-          el('span', { class: 'timer', 'data-expires': post.expiresAt, text: formatLeft(post.secondsLeft) })),
-        el('div', { class: 'tags' }, ...tags),
-        el('p', { class: 'msg-text', text: post.body }),
-        post.location ? el('p', { class: 'loc', text: `📍 ${post.location}` }) : null,
-        renderReplies(post),
-      ),
+  function renderPost(post) {
+    const mine = !!post.isMine;
+    const isPrivate = post.channel === 'organisers';
+    const tags = el('div', { class: 'tags' },
+      el('span', { class: 'tag type', text: post.templateLabel }),
+      isPrivate ? el('span', { class: 'tag private', text: 'Organisers only' }) : null,
+      post.author.role === 'organiser' ? el('span', { class: 'tag org', text: 'Organiser' }) : null,
     );
 
-    const main = card.querySelector('.msg-main');
+    const bubble = el('div', { class: 'bubble' },
+      shownTitle(post) ? el('div', { class: 'bubble-title', text: shownTitle(post) }) : null,
+      el('div', { class: 'bubble-text', text: post.body }),
+      post.location ? el('div', { class: 'where', text: `📍 ${post.location}` }) : null,
+      el('div', { class: 'bubble-foot' },
+        tags,
+        el('span', { class: 'timer', 'data-expires': post.expiresAt, text: formatLeft(post.secondsLeft) })),
+    );
+
+    const body = el('div', { class: 'msg-body' },
+      el('div', { class: 'msg-meta' },
+        el('strong', { text: mine ? 'You' : post.author.name }),
+        el('span', { text: `· ${timeAgo(post.createdAt)}` })),
+      bubble,
+      renderReplies(post),
+    );
 
     if (post.canReply) {
-      const input = el('input', { class: 'reply-input', maxlength: '2000', placeholder: post.replyLabel || 'Reply' });
+      const input = el('input', { maxlength: '2000', placeholder: post.replyLabel || 'Reply', 'aria-label': 'Reply' });
       input.value = state.drafts[post.id] || '';
       input.addEventListener('input', () => { state.drafts[post.id] = input.value; });
       const form = el('form', { class: 'reply-form' }, input,
@@ -776,7 +820,7 @@
           toast(err.message);
         }
       });
-      main.append(form);
+      body.append(form);
     }
 
     if (post.canClose) {
@@ -791,33 +835,48 @@
           toast(err.message);
         }
       });
-      main.append(el('div', { class: 'actions' }, btn));
+      body.append(el('div', { class: 'msg-actions' }, btn));
     }
 
-    return card;
+    return el('article', { class: `msg${mine ? ' mine' : ''}${isPrivate ? ' private' : ''}`, 'data-id': post.id },
+      avatar(mine ? state.user.name : post.author.name),
+      body);
   }
 
   function renderFeed() {
-    renderRail();
+    renderRooms();
     const feed = $('#feed');
+    const wasNearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140;
     feed.innerHTML = '';
-    const posts = state.posts.filter((p) => !state.filter || p.template === state.filter);
-    for (const p of posts) feed.append(renderPost(p));
+
+    const posts = state.posts
+      .filter((p) => !state.filter || p.template === state.filter)
+      .slice()
+      .sort((a, b) => a.createdAt - b.createdAt);
+
+    let lastDay = '';
+    for (const p of posts) {
+      const key = DAY_KEY.format(p.createdAt);
+      if (key !== lastDay) {
+        lastDay = key;
+        feed.append(el('div', { class: 'day', text: dayLabel(p.createdAt) }));
+      }
+      feed.append(renderPost(p));
+    }
+
     const empty = $('#feed-empty');
     empty.classList.toggle('hidden', posts.length > 0);
-    empty.innerHTML = '';
     if (!state.zone) {
-      empty.append(
-        el('strong', { text: 'Enter a zone to see its posts.' }),
-        el('br'),
-        document.createTextNode('Turn on location in the left panel, or try a demo scenario.'),
-      );
+      $('#feed-empty-title').textContent = 'Enter a zone to see its messages';
+      $('#feed-empty-text').textContent = 'Turn on location in the left panel, or try a demo scenario.';
     } else {
-      empty.append(
-        el('strong', { text: 'Nothing here yet.' }),
-        el('br'),
-        document.createTextNode(`Say something to ${state.zone.zoneName}.`),
-      );
+      $('#feed-empty-title').textContent = 'Nothing here yet';
+      $('#feed-empty-text').textContent = `Start the conversation in ${state.zone.zoneName}.`;
+    }
+
+    if (state.forceScroll || wasNearBottom) {
+      feed.scrollTop = feed.scrollHeight;
+      state.forceScroll = false;
     }
   }
 
@@ -860,7 +919,7 @@
   setInterval(() => {
     if (!state.user) return;
     const now = Date.now();
-    document.querySelectorAll('.timer').forEach((node) => {
+    $$('.timer').forEach((node) => {
       node.textContent = formatLeft(Math.round((Number(node.dataset.expires) - now) / 1000));
     });
     const before = state.posts.length;
@@ -947,29 +1006,27 @@
         state.loc.permission = 'denied';
         try { await api('POST', '/api/location/forget'); } catch (_) { /* ignore */ }
         state.zone = null;
-        setLocationMessage('Location denied. Zone posts are hidden; the rest of the app still works.', 'warn');
-        refreshComposerAccess();
-        loadPosts(true);
-        loadEvents();
+        setLocationMessage('Location denied. Zone messages are hidden; the rest of the app still works.', 'warn');
+        zoneChanged();
         $('#demo-status').textContent = 'Location denied: no zone access';
       },
     },
   };
 
   let demoBusy = false;
-  document.querySelectorAll('[data-scenario]').forEach((btn) => {
+  $$('[data-scenario]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const scenario = SCENARIOS[btn.dataset.scenario];
       if (!scenario || demoBusy) return;
       demoBusy = true;
-      document.querySelectorAll('[data-scenario]').forEach((b) => { b.disabled = true; });
+      $$('[data-scenario]').forEach((b) => { b.disabled = true; });
       try {
         await scenario.run();
       } catch (err) {
         $('#demo-status').textContent = `Scenario failed: ${err.message}`;
       } finally {
         demoBusy = false;
-        document.querySelectorAll('[data-scenario]').forEach((b) => { b.disabled = false; });
+        $$('[data-scenario]').forEach((b) => { b.disabled = false; });
       }
     });
   });
@@ -979,26 +1036,24 @@
   async function boot() {
     if (!state.token) return showLogin();
     try {
-      status('Checking your session…');
-      const [{ user }, { templates }, status2, config] = await Promise.all([
+      setLoginStatus('Checking your session…');
+      const [{ user }, { templates }, status2] = await Promise.all([
         api('GET', '/api/me'),
         api('GET', '/api/templates'),
         api('GET', '/api/location/status'),
-        api('GET', '/api/config'),
       ]);
       state.user = user;
       state.templates = templates;
       state.zone = status2.membership;
-      state.mapsKey = config.mapsApiKey || '';
     } catch (err) {
       localStorage.removeItem(TOKEN_KEY);
       state.token = null;
       showLogin();
-      status('');
+      setLoginStatus('');
       $('#login-error').textContent = 'Could not load your session: ' + err.message;
       return;
     }
-    status('Opening feed…');
+    setLoginStatus('');
     showApp();
     renderChips();
     selectTemplate(state.composer.template);
@@ -1008,6 +1063,7 @@
       startLocation();
     }
     renderLocation();
+    refreshComposerAccess();
     await Promise.all([loadPosts(true), loadEvents()]);
     updateMap();
     startPolling();

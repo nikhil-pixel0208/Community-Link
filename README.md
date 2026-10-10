@@ -93,24 +93,14 @@ Based on the DropZone problem statement (section 5).
 
 New endpoints: `GET /api/zones`, `GET /api/location/status`, `POST /api/location/check-in` with `{ lat, lng, accuracy }`, `POST /api/location/leave`, `POST /api/location/forget`.
 
-## Zone dashboard, events and Google Maps
+## Zone dashboard, events and map
 
 **Dashboard:** inside a zone, the dashboard lists that zone's events only. Each event is marked **Open entry · no sign-in** or **Sign-in required** (registration, college or photo ID, or ticket). Filters switch between them. Free and paid events are shown with their price.
 
-Organisers can add events to their current zone from the dashboard, and remove them. Sample events are generated for demo purposes and are marked "Demo". They are never saved to the database.
+Organisers can add events to their current zone from the dashboard, and remove them. Sample events are generated for demo purposes and are marked "Demo". They are never saved to the database. The app doesn't check IDs or tickets; it only shows what the organiser set.
 
-The app doesn't check IDs or tickets. It only shows what the organiser set.
-
-**Google Maps:** set the key on the server before starting it:
-
-```bash
-GOOGLE_MAPS_API_KEY=your_key npm start
-```
-
-Create the key in Google Cloud Console: enable **Maps JavaScript API**, create an API key, and restrict it to HTTP referrers, such as `http://localhost:3000/*` for local testing and your preview's address for the demo. Without a key, the map shows a note and the rest of the app works.
-
-The map shows the zone outlines and **only your own position**. Other people's positions are never shown.
+**Map:** uses OpenStreetMap tiles through Leaflet, so no API key or billing account is needed. Leaflet is vendored in `public/vendor/leaflet`. The map shows the zone outlines and **only your own position**. Other people's positions are never shown. Note that the browser loads map tiles from OpenStreetMap, which receives the viewer's IP address and the area shown; the privacy notice says so.
 
 **Live tracking:** the browser reports each new position, so the map follows you. The server gets a check-in at most every 15 seconds, which keeps the entry and exit rules working. Stopping location (or leaving a zone) stops the tracking.
 
-**Events API:** `GET /api/events`, `POST /api/events` (organisers), `DELETE /api/events/:id` (organisers). `GET /api/config` returns the public Maps key setting.
+**Events API:** `GET /api/events`, `POST /api/events` (organisers), `DELETE /api/events/:id` (organisers). `GET /api/config` still returns `mapsApiKey` from `GOOGLE_MAPS_API_KEY`, but the front end no longer uses it.
