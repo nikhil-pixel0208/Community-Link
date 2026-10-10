@@ -1,0 +1,4 @@
+# Community-Link
+Community Link is a privacy-conscious, location-based social networking platform designed to connect people who share the same physical space, such as college campuses, hackathons, events, transit hubs, and technology parks.
+Unlike traditional social media platforms that rely on permanent followers and broad public feeds, Community Link creates temporary, zone-based communities where users can interact, exchange useful information, collaborate with nearby participants, and solve real-world problems.
+The platform enables users to discover local announcements, report lost and found items, ask questions, and coordinate activities within designated zones. Its privacy-first approach incorporates opt-in location access, time-limited posts, user reporting, blocking, spam prevention, and moderator controls to promote safer interactions.
