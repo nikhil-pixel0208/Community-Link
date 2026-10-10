@@ -86,7 +86,7 @@
 
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const f = e.target;
+    const f = e.target.elements;
     $('#login-error').textContent = '';
     try {
       const role = document.querySelector('input[name="role"]:checked').value;
@@ -161,7 +161,7 @@
 
   $('#post-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const f = e.target;
+    const f = e.target.elements;
     $('#post-error').textContent = '';
     const tpl = currentTemplate();
     const payload = {
