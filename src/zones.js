@@ -15,6 +15,13 @@ const ZONES = Object.freeze([
     radiusM: 150,
   },
   {
+    id: 'my-test-zone',
+    name: 'Test zone · your location',
+    kind: 'circle',
+    center: { lat: 17.710670091135647, lng: 83.16593738925785 },
+    radiusM: 100,
+  },
+  {
     id: 'campus-quad',
     name: 'Campus Quad',
     kind: 'polygon',

@@ -244,7 +244,7 @@ test('zones list exposes geometry but no one\'s presence', async () => {
     const token = await loginInHall(app.base, 'Asha');
     const r = await call(app.base, 'GET', '/api/zones', token);
     assert.equal(r.status, 200);
-    assert.equal(r.data.zones.length, 2);
+    assert.equal(r.data.zones.length, 3);
     assert.equal(JSON.stringify(r.data).includes('usr_'), false);
   } finally {
     await app.close();
