@@ -54,6 +54,11 @@ function canClose(post, user) {
   return !!user && user.id === post.authorId;
 }
 
+function deriveTitle(body) {
+  const firstLine = body.split('\n')[0].trim();
+  return firstLine.length > 60 ? `${firstLine.slice(0, 57).trimEnd()}…` : firstLine;
+}
+
 function validatePost(input, user, now) {
   if (!user) return err(401, 'Log in first.');
   if (!input || typeof input !== 'object') return err(400, 'Invalid post body.');
@@ -65,11 +70,8 @@ function validatePost(input, user, now) {
     return err(403, `Only organisers can create ${template.label} posts.`);
   }
 
-  const title = typeof input.title === 'string' ? input.title.trim() : '';
   const body = typeof input.body === 'string' ? input.body.trim() : '';
-  if (!title) return err(400, 'Title is required.');
-  if (title.length > MAX_TITLE) return err(400, `Title must be ${MAX_TITLE} characters or fewer.`);
-  if (!body) return err(400, 'Message is required.');
+  if (!body) return err(400, 'Write a message first.');
   if (body.length > MAX_BODY) return err(400, `Message must be ${MAX_BODY} characters or fewer.`);
 
   let location = null;
@@ -93,6 +95,11 @@ function validatePost(input, user, now) {
       return err(400, `Timeline must be between ${bounds.minMs / 60000} and ${bounds.maxMs / 60000} minutes.`);
     }
   }
+
+  // Messages are text-first: when no title is given, use the start of the message.
+  const givenTitle = typeof input.title === 'string' ? input.title.trim() : '';
+  if (givenTitle.length > MAX_TITLE) return err(400, `Title must be ${MAX_TITLE} characters or fewer.`);
+  const title = givenTitle || deriveTitle(body);
 
   return ok({
     template: template.id,

@@ -2,15 +2,18 @@
 
 (function () {
   const TOKEN_KEY = 'communityLinkToken';
-  const POLL_MS = 5000;
+  const POLL_MS = 4000;
 
   const state = {
     token: localStorage.getItem(TOKEN_KEY),
     user: null,
     templates: [],
     posts: [],
+    filter: '',
+    composer: { template: 'communication', channel: 'public' },
+    drafts: {},          // reply drafts, kept across re-renders
+    signature: '',       // last rendered post list (ignores countdown values)
     pollTimer: null,
-    lastNow: Date.now(),
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -18,10 +21,11 @@
   function el(tag, attrs = {}, ...children) {
     const node = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) {
+      if (v === null || v === undefined || v === false) continue;
       if (k === 'class') node.className = v;
       else if (k === 'text') node.textContent = v;
       else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
-      else node.setAttribute(k, v);
+      else node.setAttribute(k, v === true ? '' : v);
     }
     for (const c of children) if (c) node.append(c);
     return node;
@@ -53,56 +57,111 @@
     return data;
   }
 
+  // ---- Small helpers ------------------------------------------------------
+
+  function initials(name) {
+    const parts = String(name || '?').trim().split(/\s+/).slice(0, 2);
+    return parts.map((p) => p[0] || '').join('').toUpperCase() || '?';
+  }
+
+  function hueFor(name) {
+    let h = 0;
+    for (const ch of String(name || '')) h = (h * 31 + ch.charCodeAt(0)) % 360;
+    return h;
+  }
+
+  function avatar(name, extraClass = '') {
+    return el('span', {
+      class: `avatar ${extraClass}`.trim(),
+      style: `background:hsl(${hueFor(name)} 55% 45%)`,
+      text: initials(name),
+      title: name,
+    });
+  }
+
   function formatLeft(seconds) {
     if (seconds <= 0) return 'clearing…';
     const d = Math.floor(seconds / 86400);
     const h = Math.floor((seconds % 86400) / 3600);
     const m = Math.floor((seconds % 3600) / 60);
-    if (d) return `${d}d ${h}h left`;
-    if (h) return `${h}h ${m}m left`;
-    if (m) return `${m}m ${seconds % 60}s left`;
-    return `${seconds}s left`;
+    if (d) return `clears in ${d}d ${h}h`;
+    if (h) return `clears in ${h}h ${m}m`;
+    if (m) return `clears in ${m}m`;
+    return `clears in ${seconds}s`;
   }
+
+  function timeAgo(ts) {
+    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 60) return 'just now';
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  }
+
+  function toast(text) {
+    const t = $('#toast');
+    t.textContent = text;
+    t.classList.remove('hidden');
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => t.classList.add('hidden'), 3000);
+  }
+
+  function status(text) {
+    const n = document.getElementById('login-status');
+    if (n) n.textContent = text;
+  }
+
+  function templateById(id) {
+    return state.templates.find((t) => t.id === id);
+  }
+
+  function canUseTemplate(tpl) {
+    return !tpl.organiserOnly || (state.user && state.user.role === 'organiser');
+  }
+
+  // ---- Views --------------------------------------------------------------
 
   function showLogin() {
     stopPolling();
     $('#login-view').classList.remove('hidden');
     $('#app-view').classList.add('hidden');
-    $('#whoami').classList.add('hidden');
   }
 
   function showApp() {
     $('#login-view').classList.add('hidden');
     $('#app-view').classList.remove('hidden');
-    $('#whoami').classList.remove('hidden');
-    $('#whoami-text').textContent = `${state.user.name} · ${state.user.role}`;
+    $('#me-avatar').textContent = initials(state.user.name);
+    $('#me-avatar').style.background = `hsl(${hueFor(state.user.name)} 55% 45%)`;
+    $('#me-text').textContent = `${state.user.name} · ${state.user.role === 'organiser' ? 'Organiser' : 'Participant'}`;
   }
 
-  // ---- Login -------------------------------------------------------------
+  // ---- Login --------------------------------------------------------------
+
+  function selectedRole() {
+    return document.querySelector('input[name="role"]:checked').value;
+  }
 
   function syncRoleFields() {
-    const role = document.querySelector('input[name="role"]:checked').value;
-    $('#organiser-code-row').classList.toggle('hidden', role !== 'organiser');
+    $('#organiser-code-row').classList.toggle('hidden', selectedRole() !== 'organiser');
   }
 
   document.querySelectorAll('input[name="role"]').forEach((r) => r.addEventListener('change', syncRoleFields));
 
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const f = e.target.elements;
     $('#login-error').textContent = '';
-    status('Submitting…');
+    status('Signing in…');
     try {
-      const role = document.querySelector('input[name="role"]:checked').value;
       const data = await api('POST', '/api/login', {
-        name: f.name.value.trim(),
-        role,
-        organiserCode: f.organiserCode ? f.organiserCode.value : undefined,
+        name: $('#login-name').value.trim(),
+        role: selectedRole(),
+        organiserCode: $('#login-code').value,
       });
       state.token = data.token;
       localStorage.setItem(TOKEN_KEY, data.token);
       await boot();
     } catch (err) {
+      status('');
       $('#login-error').textContent = err.message;
     }
   });
@@ -111,162 +170,237 @@
     localStorage.removeItem(TOKEN_KEY);
     state.token = null;
     state.user = null;
+    state.drafts = {};
+    state.signature = '';
     showLogin();
   });
 
-  // ---- Compose -----------------------------------------------------------
+  // ---- Composer -----------------------------------------------------------
 
-  function currentTemplate() {
-    return state.templates.find((t) => t.id === $('#template-select').value);
+  function renderChips() {
+    const wrap = $('#template-chips');
+    wrap.innerHTML = '';
+    for (const tpl of state.templates) {
+      const allowed = canUseTemplate(tpl);
+      const chip = el('button', {
+        type: 'button',
+        class: 'chip',
+        role: 'radio',
+        'aria-checked': String(state.composer.template === tpl.id),
+        disabled: !allowed,
+        title: allowed ? tpl.description : 'Only organisers can post this',
+        text: tpl.label + (tpl.organiserOnly ? ' · organisers' : ''),
+        onclick: () => selectTemplate(tpl.id),
+      });
+      if (state.composer.template === tpl.id) chip.classList.add('on');
+      wrap.append(chip);
+    }
   }
 
-  function renderComposeForTemplate() {
-    const tpl = currentTemplate();
+  function renderChannels() {
+    const tpl = templateById(state.composer.template);
+    const seg = $('#channel-seg');
+    seg.innerHTML = '';
+    const labels = { public: 'Whole group', organisers: 'Organisers only' };
     if (!tpl) return;
-    const isOrg = state.user.role === 'organiser';
-
-    $('#template-description').textContent = tpl.description;
-    if (tpl.organiserOnly && !isOrg) {
-      $('#template-description').textContent += ' (Organisers only — you can view but not post.)';
+    if (tpl.channels.length < 2) {
+      state.composer.channel = 'public';
+      $('#channel-row').classList.add('hidden');
+    } else {
+      $('#channel-row').classList.remove('hidden');
+      for (const c of tpl.channels) {
+        const on = state.composer.channel === c;
+        seg.append(el('button', {
+          type: 'button',
+          class: `seg-btn${on ? ' on' : ''}`,
+          role: 'radio',
+          'aria-checked': String(on),
+          text: labels[c],
+          onclick: () => {
+            state.composer.channel = c;
+            renderChannels();
+          },
+        }));
+      }
     }
-
-    const channelSelect = $('#channel-select');
-    channelSelect.innerHTML = '';
-    const labels = { public: 'Whole group (public)', organisers: 'Organisers only (private)' };
-    for (const c of tpl.channels) channelSelect.append(el('option', { value: c, text: labels[c] }));
-    $('#channel-row').classList.toggle('hidden', tpl.channels.length < 2);
     $('#channel-hint').textContent =
-      channelSelect.value === 'organisers'
-        ? 'Only you and the organisers will see this. Use it for private questions.'
-        : '';
+      state.composer.channel === 'organisers' ? 'Only you and the organisers will see this.' : '';
+  }
 
+  function renderComposerMeta() {
+    const tpl = templateById(state.composer.template);
+    if (!tpl) return;
+    $('#template-desc').textContent = tpl.description;
     $('#location-row').classList.toggle('hidden', !tpl.usesLocation);
-
-    const ttl = $('#ttl-input');
-    ttl.value = tpl.ttlMinutes.default;
+    const ttl = $('#msg-ttl');
+    ttl.placeholder = `${tpl.ttlMinutes.default} (default)`;
     ttl.max = tpl.ttlMinutes.max;
-    ttl.title = `Between 5 and ${tpl.ttlMinutes.max} minutes`;
   }
 
-  function renderTemplateOptions() {
-    const sel = $('#template-select');
-    sel.innerHTML = '';
-    for (const t of state.templates) {
-      sel.append(el('option', { value: t.id, text: t.label + (t.organiserOnly ? ' (organisers)' : '') }));
-    }
-    const filter = $('#filter-select');
-    filter.innerHTML = '';
-    filter.append(el('option', { value: '', text: 'All posts' }));
-    for (const t of state.templates) filter.append(el('option', { value: t.id, text: t.label }));
+  function selectTemplate(id) {
+    const tpl = templateById(id);
+    if (!tpl || !canUseTemplate(tpl)) return;
+    state.composer.template = id;
+    if (!tpl.channels.includes(state.composer.channel)) state.composer.channel = tpl.channels[0];
+    renderChips();
+    renderChannels();
+    renderComposerMeta();
   }
 
-  $('#template-select').addEventListener('change', renderComposeForTemplate);
-  $('#channel-select').addEventListener('change', renderComposeForTemplate);
-
-  $('#post-form').addEventListener('submit', async (e) => {
+  $('#composer').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const f = e.target.elements;
-    $('#post-error').textContent = '';
-    const tpl = currentTemplate();
+    $('#composer-error').textContent = '';
+    const input = $('#msg-input');
+    const tpl = templateById(state.composer.template);
+    if (!tpl) return;
     const payload = {
       template: tpl.id,
-      title: f.title.value,
-      body: f.body.value,
-      ttlMinutes: f.ttlMinutes.value,
+      body: input.value,
+      channel: state.composer.channel,
     };
-    if (tpl.channels.length > 1) payload.channel = f.channel.value;
-    if (tpl.usesLocation) payload.location = f.location.value;
+    if (tpl.usesLocation && $('#msg-location').value.trim()) payload.location = $('#msg-location').value;
+    if ($('#msg-ttl').value) payload.ttlMinutes = $('#msg-ttl').value;
     try {
       await api('POST', '/api/posts', payload);
-      f.title.value = '';
-      f.body.value = '';
-      f.location.value = '';
+      input.value = '';
+      input.style.height = '';
+      $('#msg-location').value = '';
+      $('#msg-ttl').value = '';
+      toast('Sent');
       await loadPosts();
     } catch (err) {
-      $('#post-error').textContent = err.message;
+      $('#composer-error').textContent = err.message;
     }
   });
 
-  // ---- Feed --------------------------------------------------------------
+  // Grow the message box with its content.
+  $('#msg-input').addEventListener('input', (e) => {
+    e.target.style.height = 'auto';
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+  });
+  // Enter sends, Shift+Enter adds a new line.
+  $('#msg-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      $('#composer').requestSubmit();
+    }
+  });
+
+  // ---- Feed ---------------------------------------------------------------
+
+  function renderRail() {
+    const rail = $('#rail');
+    rail.innerHTML = '';
+    const count = (id) => (id ? state.posts.filter((p) => p.template === id).length : state.posts.length);
+    const items = [{ id: '', label: 'Everything' }, ...state.templates.map((t) => ({ id: t.id, label: t.label }))];
+    for (const it of items) {
+      rail.append(el('button', {
+        type: 'button',
+        class: `rail-item${state.filter === it.id ? ' on' : ''}`,
+        onclick: () => {
+          state.filter = it.id;
+          renderFeed();
+        },
+      }, el('span', { text: it.label }), el('span', { class: 'count', text: String(count(it.id)) })));
+    }
+  }
+
+  function renderReplies(post) {
+    if (!post.responses.length) return null;
+    return el('div', { class: 'thread' },
+      ...post.responses.map((r) => el('div', { class: `reply${r.authorName === state.user.name ? ' mine' : ''}` },
+        avatar(r.authorName, 'tiny'),
+        el('div', { class: 'reply-body' },
+          el('div', { class: 'reply-meta' },
+            el('strong', { text: r.authorName }),
+            el('span', { class: 'muted', text: ` · ${timeAgo(r.createdAt)}` })),
+          el('div', { class: 'reply-text', text: r.text })))));
+  }
 
   function renderPost(post) {
     const tags = [
       el('span', { class: 'tag', text: post.templateLabel }),
-      post.channel === 'organisers'
-        ? el('span', { class: 'tag private', text: 'Organisers only' })
-        : null,
+      post.channel === 'organisers' ? el('span', { class: 'tag private', text: 'Organisers only' }) : null,
       post.author.role === 'organiser' ? el('span', { class: 'tag org', text: 'Organiser' }) : null,
     ];
 
-    const replies = post.responses.map((r) =>
-      el('li', {},
-        el('strong', { text: r.authorName + ': ' }),
-        document.createTextNode(r.text)
-      )
+    const card = el('article', { class: 'msg', 'data-id': post.id },
+      avatar(post.author.name),
+      el('div', { class: 'msg-main' },
+        el('div', { class: 'msg-meta' },
+          el('strong', { text: post.isMine ? `${post.author.name} (you)` : post.author.name }),
+          el('span', { class: 'muted', text: ` · ${timeAgo(post.createdAt)}` }),
+          el('span', { class: 'timer', 'data-expires': post.expiresAt, text: formatLeft(post.secondsLeft) })),
+        el('div', { class: 'tags' }, ...tags),
+        el('p', { class: 'msg-text', text: post.body }),
+        post.location ? el('p', { class: 'loc', text: `📍 ${post.location}` }) : null,
+        renderReplies(post),
+      ),
     );
 
-    const card = el('article', { class: 'post', 'data-id': post.id },
-      el('div', { class: 'post-head' },
-        el('div', { class: 'tags' }, ...tags),
-        el('span', { class: 'timer', 'data-expires': post.expiresAt, text: formatLeft(post.secondsLeft) })
-      ),
-      el('h3', { text: post.title }),
-      el('p', { class: 'body', text: post.body }),
-      post.location ? el('p', { class: 'small', text: `📍 ${post.location}` }) : null,
-      el('p', { class: 'muted small', text: `${post.author.name}${post.isMine ? ' (you)' : ''}` }),
-      replies.length ? el('ul', { class: 'replies' }, ...replies) : null
-    );
+    const main = card.querySelector('.msg-main');
 
     if (post.canReply) {
-      const input = el('input', { name: 'reply', maxlength: '2000', placeholder: 'Write a reply…' });
+      const input = el('input', { class: 'reply-input', maxlength: '2000', placeholder: post.replyLabel || 'Reply' });
+      input.value = state.drafts[post.id] || '';
+      input.addEventListener('input', () => { state.drafts[post.id] = input.value; });
       const form = el('form', { class: 'reply-form' }, input,
-        el('button', { type: 'submit', text: post.replyLabel || 'Reply' }));
+        el('button', { type: 'submit', class: 'btn small', text: post.replyLabel || 'Reply' }));
       form.addEventListener('submit', async (ev) => {
         ev.preventDefault();
         if (!input.value.trim()) return;
         try {
           await api('POST', `/api/posts/${post.id}/responses`, { text: input.value });
+          delete state.drafts[post.id];
           await loadPosts();
         } catch (err) {
-          alert(err.message);
+          toast(err.message);
         }
       });
-      card.append(form);
+      main.append(form);
     }
 
     if (post.canClose) {
-      const btn = el('button', { class: 'danger', text: post.closeLabel }, null);
+      const btn = el('button', { type: 'button', class: 'btn ghost small', text: post.closeLabel });
       btn.addEventListener('click', async () => {
-        if (!confirm('Close this post? It will be removed for everyone.')) return;
+        if (!confirm('Close this? It will be removed for everyone.')) return;
         try {
           await api('DELETE', `/api/posts/${post.id}`);
+          delete state.drafts[post.id];
           await loadPosts();
         } catch (err) {
-          alert(err.message);
+          toast(err.message);
         }
       });
-      card.append(el('div', { class: 'actions' }, btn));
+      main.append(el('div', { class: 'actions' }, btn));
     }
 
     return card;
   }
 
   function renderFeed() {
+    renderRail();
     const feed = $('#feed');
     feed.innerHTML = '';
-    const filter = $('#filter-select').value;
-    const posts = state.posts.filter((p) => !filter || p.template === filter);
+    const posts = state.posts.filter((p) => !state.filter || p.template === state.filter);
     for (const p of posts) feed.append(renderPost(p));
     $('#feed-empty').classList.toggle('hidden', posts.length > 0);
+  }
+
+  function signatureOf(posts) {
+    return JSON.stringify(posts.map((p) => ({ ...p, secondsLeft: undefined })));
   }
 
   async function loadPosts() {
     if (!state.user) return;
     try {
       const data = await api('GET', '/api/posts');
+      const sig = signatureOf(data.posts);
       state.posts = data.posts;
-      state.lastNow = data.now;
-      renderFeed();
+      if (sig !== state.signature) {
+        state.signature = sig;
+        renderFeed();
+      }
     } catch (err) {
       if (err.status === 401) {
         localStorage.removeItem(TOKEN_KEY);
@@ -276,19 +410,19 @@
     }
   }
 
-  $('#filter-select').addEventListener('change', renderFeed);
-
-  // Countdown ticks locally between polls; server state is refreshed every POLL_MS.
+  // Countdown ticks locally; posts whose time runs out are removed straight away.
   setInterval(() => {
+    if (!state.user) return;
     const now = Date.now();
     document.querySelectorAll('.timer').forEach((node) => {
-      const seconds = Math.round((Number(node.dataset.expires) - now) / 1000);
-      node.textContent = formatLeft(seconds);
+      node.textContent = formatLeft(Math.round((Number(node.dataset.expires) - now) / 1000));
     });
-    // Remove posts that have run out, without waiting for the next poll.
     const before = state.posts.length;
     state.posts = state.posts.filter((p) => p.expiresAt > now);
-    if (state.posts.length !== before) renderFeed();
+    if (state.posts.length !== before) {
+      state.signature = signatureOf(state.posts);
+      renderFeed();
+    }
   }, 1000);
 
   function stopPolling() {
@@ -300,6 +434,8 @@
     stopPolling();
     state.pollTimer = setInterval(loadPosts, POLL_MS);
   }
+
+  // ---- Boot ---------------------------------------------------------------
 
   async function boot() {
     if (!state.token) return showLogin();
@@ -321,18 +457,12 @@
     }
     status('Opening feed…');
     showApp();
-    renderTemplateOptions();
-    renderComposeForTemplate();
+    renderChips();
+    selectTemplate(state.composer.template);
     await loadPosts();
     startPolling();
   }
 
-  function status(text) {
-    const n = document.getElementById('login-status');
-    if (n) n.textContent = text;
-  }
-
-  status('Script running — ready.');
   syncRoleFields();
   boot();
 })();

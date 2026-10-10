@@ -54,7 +54,7 @@ test/               unit tests (lifecycle) and API tests
 | POST | `/api/login` | `{ name, role, organiserCode? }` → `{ token, user }` |
 | GET | `/api/templates` | Template catalogue |
 | GET | `/api/posts?template=&channel=` | Live posts visible to the caller |
-| POST | `/api/posts` | `{ template, title, body, channel?, location?, ttlMinutes? }` |
+| POST | `/api/posts` | `{ template, body, channel?, location?, ttlMinutes?, title? }` — only `body` is required; `title` defaults to the start of the message |
 | POST | `/api/posts/:id/responses` | `{ text }` — replies where the template allows them |
 | DELETE | `/api/posts/:id` | Author closes the post; it is removed |
 

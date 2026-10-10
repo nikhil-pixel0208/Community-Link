@@ -131,3 +131,16 @@ test('validateReply rejects empty text and users who cannot see the post', () =>
   assert.equal(lc.validateReply({ text: '   ' }, makePost(), otherParticipant, NOW).ok, false);
   assert.equal(lc.validateReply({ text: 'ok' }, makePost(), otherParticipant, NOW).ok, true);
 });
+
+test('a message needs only text; the title is derived from it', () => {
+  const r = lc.validatePost({ template: 'communication', body: 'Can I get 30 more minutes for my PPT?', channel: 'organisers' }, participant, NOW);
+  assert.equal(r.ok, true);
+  assert.equal(r.value.title, 'Can I get 30 more minutes for my PPT?');
+  assert.equal(r.value.body, 'Can I get 30 more minutes for my PPT?');
+
+  const long = lc.validatePost({ template: 'communication', body: 'x'.repeat(200) }, participant, NOW);
+  assert.ok(long.value.title.length <= 60);
+
+  const empty = lc.validatePost({ template: 'communication', body: '   ' }, participant, NOW);
+  assert.equal(empty.ok, false);
+});
