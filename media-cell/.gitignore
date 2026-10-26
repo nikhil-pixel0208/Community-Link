@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+
+# The repo-root .gitignore ignores any `data/` directory (for the
+# Community-Link app's JSON store). Our content model lives in
+# src/data/ and MUST be tracked — re-include it explicitly.
+!src/data/
+!src/data/**

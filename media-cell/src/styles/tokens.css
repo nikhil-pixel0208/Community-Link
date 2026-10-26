@@ -1,0 +1,31 @@
+/* Design tokens — PRD §8 Visual Design System */
+:root {
+  /* Colour palette (§8.2) */
+  --bg: #151515;
+  --surface: #202020;
+  --surface-2: #262622;
+  --ink: #f1efe8;
+  --muted: #aaa9a2;
+  --accent: #c65b3b;
+  --accent-ink: #e8a589; /* accent lightened for small text on dark */
+  --olive: #74746a;
+  --line: rgba(241, 239, 232, 0.14);
+  --line-strong: rgba(241, 239, 232, 0.28);
+
+  /* Typography (§8.3) */
+  --font-display: 'Anton', 'Arial Narrow', sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+
+  /* Layout (§8.4) */
+  --page-max: 1440px;
+  --gutter: clamp(1.25rem, 4vw, 4rem);
+  --section-pad: clamp(4.5rem, 9vw, 8rem);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur: 0.45s;
+
+  --radius: 4px;
+  --header-h: 72px;
+}

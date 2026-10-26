@@ -1,0 +1,67 @@
+/* Keyframes + reduced-motion contract (FR-03 / PRD §9).
+   The interface must remain fully usable with motion disabled:
+   reveal states are only applied by JS when motion is allowed,
+   and every CSS animation is neutralised under reduced motion. */
+
+@keyframes rec-blink {
+  50% {
+    opacity: 0.15;
+  }
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Page entry — applied to <main> children wrappers */
+.page-enter {
+  animation: rise-in 0.6s var(--ease-out) both;
+}
+
+/* GSAP scroll-reveal initial state is set from JS (gsap.set) only when
+   the user has NOT requested reduced motion, so no-JS / reduced-motion
+   visitors always see final content. */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .marquee__track {
+    animation: none;
+  }
+  .meta .rec-dot {
+    animation: none;
+  }
+}
